@@ -60,7 +60,8 @@ const state = {
   stream: null,
   landmarker: null,
   visionPromise: null,
-  startup: { visionStartedAt: null, visionReadyAt: null, cameraMs: null, clickToReadyMs: null, firstInferenceMs: null, firstInferenceAt: null },
+  startup: { visionStartedAt: null, visionReadyAt: null, cameraMs: null, clickToPreviewMs: null, clickToReadyMs: null, firstInferenceMs: null, firstInferenceAt: null },
+  startAttempt: 0,
   running: false,
   pageVisible: !document.hidden,
   lastVideoTime: -1,
@@ -1066,17 +1067,18 @@ async function initVision() {
   if (state.visionPromise) return state.visionPromise;
   state.startup.visionStartedAt = Math.round(performance.now());
   state.visionPromise = (async () => {
-    const fileset = await FilesetResolver.forVisionTasks(`${import.meta.env.BASE_URL}wasm`);
-    // The runtime otherwise waits for its loader script before requesting WASM.
-    if (!document.querySelector('link[data-vision-wasm]')) {
+    // Start the model alongside the runtime, after the interface has loaded.
+    if (!document.querySelector('link[data-vision-model]')) {
       const preload = document.createElement("link");
       preload.rel = "preload";
       preload.as = "fetch";
       preload.crossOrigin = "anonymous";
-      preload.href = fileset.wasmBinaryPath;
-      preload.dataset.visionWasm = "";
+      preload.href = `${import.meta.env.BASE_URL}models/face_landmarker.task`;
+      preload.fetchPriority = "low";
+      preload.dataset.visionModel = "";
       document.head.append(preload);
     }
+    const fileset = await FilesetResolver.forVisionTasks(`${import.meta.env.BASE_URL}wasm`);
     const faceOptions = {
       baseOptions: { modelAssetPath: `${import.meta.env.BASE_URL}models/face_landmarker.task`, delegate: "GPU" },
       runningMode: "VIDEO",
@@ -1107,10 +1109,10 @@ function waitForVideoMetadata() {
   });
 }
 
-async function startCamera() {
+async function startCamera(attempt) {
   const startedAt = performance.now();
   stopCamera();
-  state.stream = await navigator.mediaDevices.getUserMedia({
+  const stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
       facingMode: "user",
@@ -1119,11 +1121,20 @@ async function startCamera() {
       frameRate: { ideal: PERFORMANCE.cameraFps, max: PERFORMANCE.cameraFps },
     },
   });
-  ui.video.srcObject = state.stream;
+  // An earlier permission request can resolve after a failure or a retry.
+  if (attempt !== state.startAttempt) {
+    stream.getTracks().forEach((track) => track.stop());
+    return false;
+  }
+  state.stream = stream;
+  ui.video.srcObject = stream;
   await waitForVideoMetadata();
+  if (attempt !== state.startAttempt) return false;
   await ui.video.play();
+  if (attempt !== state.startAttempt) return false;
   prepareInferenceCanvases();
   state.startup.cameraMs = Math.round(performance.now() - startedAt);
+  return true;
 }
 
 function stopCamera() {
@@ -1135,6 +1146,7 @@ function stopCamera() {
 }
 
 function closeExperience() {
+  state.startAttempt += 1;
   state.running = false;
   stopCamera();
 
@@ -1212,8 +1224,10 @@ function friendlyCameraError(error) {
 }
 
 async function startExperience() {
+  const attempt = ++state.startAttempt;
   const clickedAt = performance.now();
   state.startup.cameraMs = null;
+  state.startup.clickToPreviewMs = null;
   state.startup.clickToReadyMs = null;
   state.startup.firstInferenceMs = null;
   state.startup.firstInferenceAt = null;
@@ -1229,11 +1243,13 @@ async function startExperience() {
 
   try {
     sound.unlock().catch(() => {});
-    await Promise.all([initVision(), startCamera().then(() => {
-      if (ui.app.dataset.state === "loading" && !state.landmarker) {
-        ui.startButton.querySelector("span").textContent = "Preparing effects...";
-      }
+    await Promise.all([initVision(), startCamera(attempt).then((ready) => {
+      if (!ready || attempt !== state.startAttempt) return;
+      state.startup.clickToPreviewMs = Math.round(performance.now() - clickedAt);
+      ui.app.dataset.state = "preparing";
+      ui.signalLabel.textContent = "Preparing effects...";
     })]);
+    if (attempt !== state.startAttempt) return;
     state.running = true;
     state.startup.clickToReadyMs = Math.round(performance.now() - clickedAt);
     state.lastVideoTime = -1;
@@ -1247,14 +1263,16 @@ async function startExperience() {
     ui.startButton.disabled = false;
     ui.startButton.setAttribute("aria-busy", "false");
     ui.startButton.querySelector("span").textContent = "Start camera";
-    showToast("Camera ready");
+    showToast("Effects ready");
   } catch (error) {
+    if (attempt !== state.startAttempt) return;
     console.error(error);
     showError(error);
   }
 }
 
 function showError(error) {
+  state.startAttempt += 1;
   state.running = false;
   stopCamera();
   sound.pause();
@@ -1287,7 +1305,7 @@ function toggleSound() {
 }
 
 function capturePhoto() {
-  if (!state.running || !ui.video.videoWidth) return;
+  if (!state.stream || !ui.video.videoWidth) return;
   const output = document.createElement("canvas");
   output.width = state.width;
   output.height = state.height;

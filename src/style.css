@@ -72,6 +72,7 @@ button:focus-visible {
   contain: strict;
 }
 
+.app[data-state="preparing"] .camera,
 .app[data-state="live"] .camera {
   opacity: 1;
 }
@@ -166,6 +167,7 @@ button:focus-visible {
   visibility: hidden;
 }
 
+.app[data-state="preparing"] .live-badge,
 .app[data-state="live"] .live-badge {
   visibility: visible;
 }
@@ -225,6 +227,7 @@ button:focus-visible {
   transition: opacity 300ms ease;
 }
 
+.app[data-state="preparing"] .signal-panel,
 .app[data-state="live"] .signal-panel {
   opacity: 1;
   visibility: visible;
@@ -243,6 +246,10 @@ button:focus-visible {
   height: 3px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.25);
+}
+
+.app[data-state="preparing"] .smile-meter {
+  visibility: hidden;
 }
 
 .smile-fill {
@@ -267,6 +274,7 @@ button:focus-visible {
   transition: opacity 200ms ease;
 }
 
+.app[data-state="preparing"] .start-screen,
 .app[data-state="live"] .start-screen,
 .app[data-state="error"] .start-screen {
   visibility: hidden;
@@ -502,6 +510,7 @@ button:focus-visible {
   transition: opacity 300ms ease, transform 300ms ease;
 }
 
+.app[data-state="preparing"] .controls,
 .app[data-state="live"] .controls {
   opacity: 1;
   visibility: visible;
