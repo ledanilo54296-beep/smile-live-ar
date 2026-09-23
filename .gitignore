@@ -1,0 +1,9 @@
+node_modules
+dist
+.DS_Store
+.env
+.env.*
+*.log
+artifacts/
+工作记录.md
+public/models/pose_landmarker_lite.task
