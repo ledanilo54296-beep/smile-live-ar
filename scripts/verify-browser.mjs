@@ -24,7 +24,7 @@ async function newContext(viewport = { width: 390, height: 844 }) {
     }));
     window.cameraFixture = 'neutral';
     window.cameraStreams = [];
-    navigator.mediaDevices.getUserMedia = async () => {
+    const getUserMedia = async () => {
       if (window.denyCamera) throw new DOMException('Blocked in permission test', 'NotAllowedError');
       await Promise.all(Object.values(images).map((image) => image.decode()));
       const canvas = document.createElement('canvas');
@@ -46,6 +46,8 @@ async function newContext(viewport = { width: 390, height: 844 }) {
       window.cameraStreams.push(stream);
       return stream;
     };
+    // Keep the fixture source stable when WebKit recreates native API wrappers.
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia } });
   }, fixtures);
   return context;
 }
@@ -120,7 +122,9 @@ try {
   assert.equal(await page.evaluate(() => window.cameraStreams.every((stream) => stream.getTracks().every((track) => track.readyState === 'ended'))), true);
   await page.locator('#start-button').click();
   await ready(page);
-  results.push({ name: 'restart', ...await snapshot(page) });
+  const restarted = await snapshot(page);
+  results.push({ name: 'restart', ...restarted });
+  assert.ok(restarted.startup.clickToReadyMs < 5000, `Restart to first inference: ${restarted.startup.clickToReadyMs}ms`);
   await page.locator('#close-button').click();
   assert.deepEqual(errors, []);
   await context.close();

@@ -1087,14 +1087,19 @@ async function initVision() {
   return state.visionPromise;
 }
 
-function waitForVideoMetadata() {
-  if (ui.video.readyState >= 1 && ui.video.videoWidth) return Promise.resolve();
+function waitForVideoFrame() {
+  if (ui.video.readyState >= 2 && ui.video.videoWidth) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error("Camera timed out")), 10000);
-    ui.video.addEventListener("loadedmetadata", () => {
+    const loaded = () => {
       clearTimeout(timeout);
+      ui.video.removeEventListener("loadeddata", loaded);
       resolve();
-    }, { once: true });
+    };
+    const timeout = window.setTimeout(() => {
+      ui.video.removeEventListener("loadeddata", loaded);
+      reject(new Error("Camera timed out"));
+    }, 10000);
+    ui.video.addEventListener("loadeddata", loaded, { once: true });
   });
 }
 
@@ -1117,9 +1122,9 @@ async function startCamera(attempt) {
   }
   state.stream = stream;
   ui.video.srcObject = stream;
-  await waitForVideoMetadata();
-  if (attempt !== state.startAttempt) return false;
   await ui.video.play();
+  if (attempt !== state.startAttempt) return false;
+  await waitForVideoFrame();
   if (attempt !== state.startAttempt) return false;
   prepareInferenceCanvases();
   state.startup.cameraMs = Math.round(performance.now() - startedAt);
@@ -1127,11 +1132,13 @@ async function startCamera(attempt) {
 }
 
 function stopCamera() {
+  ui.video.pause();
   if (state.stream) {
     state.stream.getTracks().forEach((track) => track.stop());
     state.stream = null;
   }
   ui.video.srcObject = null;
+  ui.video.load();
 }
 
 function closeExperience() {
