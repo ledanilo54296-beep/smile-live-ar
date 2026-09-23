@@ -65,7 +65,7 @@ button:focus-visible {
   object-fit: cover;
   transform: scaleX(-1);
   opacity: 0;
-  transition: opacity 500ms ease;
+  transition: opacity 120ms ease;
 }
 
 .fx-canvas {
@@ -88,6 +88,11 @@ button:focus-visible {
   background:
     linear-gradient(180deg, rgba(1, 1, 4, 0.62) 0%, transparent 25%, transparent 58%, rgba(2, 2, 5, 0.76) 100%),
     linear-gradient(90deg, rgba(37, 244, 238, 0.08), transparent 32%, transparent 68%, rgba(254, 44, 85, 0.08));
+}
+
+.app[data-state="preparing"] .ambient,
+.app[data-state="live"] .ambient {
+  background: transparent;
 }
 
 .app[data-state="idle"] .ambient,

@@ -59,8 +59,10 @@ VITE_BASE_PATH=/smile-live-ar/ npm run serve
 
 ## 性能预算
 
-- 摄像头目标 640×480 / 24fps；人脸推理输入为 384px。
+- 摄像头预览目标 1280×720 / 24fps；人脸推理输入独立缩至 384px，避免为了识别牺牲预览清晰度。
 - 表情推理自适应限频；视觉渲染最高 30fps、Canvas DPR 固定为 1。
 - 雨滴最多 56、烟花粒子最多 180、碰撞火花最多 48；页面切到后台时暂停摄像头轨道和计算。
 - `npm test` 验证高速粒子对头部的连续碰撞；运行时可在控制台读取 `window.__SMILE_LIVE_METRICS__`。
 - `window.__SMILE_LIVE_METRICS__.startup` 记录模型开始/就绪的页面相对时间、摄像头准备耗时、点击到画面显示（`clickToPreviewMs`）、点击到识别就绪（`clickToReadyMs`）以及首次推理耗时；缓存、网络、设备和权限确认时间都会影响这些数字。预加载只减少串行等待，不减少约 6.7MB 的首次模型/WASM 压缩传输量，不承诺任意设备首次秒开。
+- 模型初始化超过 18 秒会明确提示加载失败并允许重试，不会永远停在 `Preparing effects...`。
+- 微信内置浏览器强制使用 CPU 委托，规避部分 iOS/Android WebView 的 GPU 初始化卡死；桌面浏览器仍优先使用 GPU，推理频率会按设备耗时自适应。

@@ -28,8 +28,8 @@ const ui = {
 };
 
 const PERFORMANCE = {
-  cameraWidth: 640,
-  cameraHeight: 480,
+  cameraWidth: 1280,
+  cameraHeight: 720,
   cameraFps: 24,
   renderInterval: 1000 / 30,
   inferenceWidth: 384,
@@ -39,6 +39,7 @@ const PERFORMANCE = {
   maxRain: 56,
   maxFireworks: 180,
   maxSparks: 48,
+  visionTimeoutMs: 18000,
 };
 
 const EXPRESSION = {
@@ -60,6 +61,7 @@ const state = {
   stream: null,
   landmarker: null,
   visionPromise: null,
+  visionGeneration: 0,
   startup: { visionStartedAt: null, visionReadyAt: null, cameraMs: null, clickToPreviewMs: null, clickToReadyMs: null, firstInferenceMs: null, firstInferenceAt: null },
   startAttempt: 0,
   running: false,
@@ -1065,8 +1067,9 @@ async function createVisionTask(Task, fileset, options, label) {
 async function initVision() {
   if (state.landmarker) return [state.landmarker];
   if (state.visionPromise) return state.visionPromise;
+  const generation = ++state.visionGeneration;
   state.startup.visionStartedAt = Math.round(performance.now());
-  state.visionPromise = (async () => {
+  const createTask = (async () => {
     // Start the model alongside the runtime, after the interface has loaded.
     if (!document.querySelector('link[data-vision-model]')) {
       const preload = document.createElement("link");
@@ -1079,8 +1082,11 @@ async function initVision() {
       document.head.append(preload);
     }
     const fileset = await FilesetResolver.forVisionTasks(`${import.meta.env.BASE_URL}wasm`);
+    // WeChat's iOS/Android WebViews can leave GPU delegate creation pending.
+    // CPU is slower but deterministic there, and the inference loop is capped.
+    const delegate = /MicroMessenger|WeChat/i.test(navigator.userAgent) ? "CPU" : "GPU";
     const faceOptions = {
-      baseOptions: { modelAssetPath: `${import.meta.env.BASE_URL}models/face_landmarker.task`, delegate: "GPU" },
+      baseOptions: { modelAssetPath: `${import.meta.env.BASE_URL}models/face_landmarker.task`, delegate },
       runningMode: "VIDEO",
       numFaces: 1,
       outputFaceBlendshapes: true,
@@ -1088,12 +1094,27 @@ async function initVision() {
       minFacePresenceConfidence: 0.55,
       minTrackingConfidence: 0.5,
     };
-    state.landmarker = await createVisionTask(FaceLandmarker, fileset, faceOptions, "Face tracking");
+    const landmarker = await createVisionTask(FaceLandmarker, fileset, faceOptions, "Face tracking");
+    if (generation !== state.visionGeneration) {
+      landmarker.close();
+      throw Object.assign(new Error("Face effects load was canceled"), { code: "VISION_CANCELED" });
+    }
+    state.landmarker = landmarker;
     state.startup.visionReadyAt = Math.round(performance.now());
     return [state.landmarker];
-  })().catch((error) => {
-    state.visionPromise = null;
+  })();
+  const timeout = new Promise((_, reject) => {
+    window.setTimeout(() => reject(Object.assign(new Error("Face effects timed out"), { code: "VISION_TIMEOUT" })), PERFORMANCE.visionTimeoutMs);
+  });
+  state.visionPromise = Promise.race([createTask, timeout]).catch((error) => {
+    if (state.visionGeneration === generation) {
+      state.visionGeneration += 1;
+      state.visionPromise = null;
+    }
     throw error;
+  });
+  state.visionPromise.catch(() => {
+    if (state.visionGeneration === generation) state.visionPromise = null;
   });
   return state.visionPromise;
 }
@@ -1116,8 +1137,8 @@ async function startCamera(attempt) {
     audio: false,
     video: {
       facingMode: "user",
-      width: { ideal: PERFORMANCE.cameraWidth, max: 960 },
-      height: { ideal: PERFORMANCE.cameraHeight, max: 720 },
+      width: { ideal: PERFORMANCE.cameraWidth, max: PERFORMANCE.cameraWidth },
+      height: { ideal: PERFORMANCE.cameraHeight, max: PERFORMANCE.cameraHeight },
       frameRate: { ideal: PERFORMANCE.cameraFps, max: PERFORMANCE.cameraFps },
     },
   });
@@ -1220,6 +1241,8 @@ function friendlyCameraError(error) {
   if (error?.name === "NotAllowedError") return "Camera permission was blocked. Allow access in your browser settings.";
   if (error?.name === "NotFoundError") return "No camera was found on this device.";
   if (error?.name === "NotReadableError") return "The camera is being used by another app.";
+  if (error?.code === "VISION_TIMEOUT") return "Face effects took too long to load. Check your connection and try again.";
+  if (error?.code === "VISION_CANCELED") return "Face effects stopped loading. Try again.";
   return "The camera or effects could not load. Check your connection and try again.";
 }
 
@@ -1384,10 +1407,9 @@ Object.defineProperty(window, "__SMILE_LIVE_METRICS__", {
 resizeCanvas();
 requestAnimationFrame(drawScene);
 
-// Warm the model after the first paint so the camera button can reuse the initialized task.
+// Start model loading after the first paint so it can finish before a camera click.
 const warmVision = () => initVision().catch(() => {});
-if ("requestIdleCallback" in window) window.requestIdleCallback(warmVision, { timeout: 2500 });
-else window.setTimeout(warmVision, 800);
+requestAnimationFrame(warmVision);
 
 const qaVariant = new URLSearchParams(window.location.search).get("demo");
 const qaMode = import.meta.env.DEV && Boolean(qaVariant);
