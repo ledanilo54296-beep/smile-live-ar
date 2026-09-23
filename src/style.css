@@ -11,6 +11,7 @@
 
 * {
   box-sizing: border-box;
+  letter-spacing: 0;
 }
 
 html,
@@ -32,13 +33,19 @@ button {
   font: inherit;
 }
 
+button:focus-visible {
+  outline: 3px solid var(--cyan);
+  outline-offset: 5px;
+}
+
 .app {
   position: relative;
   isolation: isolate;
   width: 100%;
   height: 100%;
   height: 100dvh;
-  min-height: 540px;
+  min-height: 0;
+  --control-bottom: max(24px, calc(env(safe-area-inset-bottom) + 16px));
   overflow: hidden;
   background: #060608;
 }
@@ -115,7 +122,8 @@ button {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: max(20px, env(safe-area-inset-top)) 20px 0;
+  min-height: 60px;
+  padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 0 max(20px, env(safe-area-inset-left));
 }
 
 .brand {
@@ -152,15 +160,20 @@ button {
   padding: 0 10px;
   border: 1px solid rgba(255, 255, 255, 0.32);
   background: rgba(0, 0, 0, 0.34);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0;
+  visibility: hidden;
+}
+
+.app[data-state="live"] .live-badge {
+  visibility: visible;
 }
 
 .close-camera-button {
-  display: none;
-  width: 40px;
-  height: 40px;
+  display: grid;
+  width: 48px;
+  height: 48px;
   padding: 0;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.28);
@@ -168,10 +181,6 @@ button {
   background: rgba(6, 6, 8, 0.64);
   color: #fff;
   cursor: pointer;
-}
-
-.app[data-state="live"] .close-camera-button {
-  display: grid;
 }
 
 .close-camera-button:hover {
@@ -205,28 +214,32 @@ button {
 .signal-panel {
   position: absolute;
   z-index: 3;
-  top: max(67px, calc(env(safe-area-inset-top) + 48px));
-  right: 20px;
+  top: max(76px, calc(env(safe-area-inset-top) + 56px));
+  right: max(20px, env(safe-area-inset-right));
   display: grid;
   gap: 6px;
   justify-items: end;
-  width: 112px;
+  width: 144px;
+  visibility: hidden;
   opacity: 0;
   transition: opacity 300ms ease;
 }
 
 .app[data-state="live"] .signal-panel {
   opacity: 1;
+  visibility: visible;
 }
 
 .signal-label {
-  font-size: 9px;
+  font-size: 11px;
+  line-height: 1.4;
+  text-shadow: 0 1px 4px #000;
   font-weight: 800;
   letter-spacing: 0;
 }
 
 .smile-meter {
-  width: 112px;
+  width: 100%;
   height: 3px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.25);
@@ -248,8 +261,10 @@ button {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: clamp(104px, 17vh, 160px) 24px max(40px, calc(env(safe-area-inset-bottom) + 24px));
-  transition: opacity 400ms ease, visibility 400ms;
+  gap: 32px;
+  overflow-y: auto;
+  padding: max(112px, calc(env(safe-area-inset-top) + 80px)) 28px max(40px, calc(env(safe-area-inset-bottom) + 24px));
+  transition: opacity 200ms ease;
 }
 
 .app[data-state="live"] .start-screen,
@@ -261,6 +276,7 @@ button {
 .intro-lockup {
   width: min(100%, 580px);
   margin: 0 auto;
+  flex-shrink: 0;
 }
 
 .intro-kicker {
@@ -275,9 +291,10 @@ button {
 .intro-title {
   display: grid;
   color: #fff;
-  font-size: clamp(48px, 15vw, 112px);
+  margin: 0;
+  font-size: 64px;
   font-weight: 950;
-  line-height: 0.78;
+  line-height: 1;
   letter-spacing: 0;
 }
 
@@ -294,12 +311,14 @@ button {
 .permission-panel {
   width: min(100%, 420px);
   margin: 0 auto;
+  flex-shrink: 0;
 }
 
 .permission-copy {
   margin: 0 0 14px;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.82);
   font-size: 14px;
+  line-height: 1.5;
 }
 
 .start-button,
@@ -310,6 +329,7 @@ button {
   border: 0;
   cursor: pointer;
   font-weight: 900;
+  font-size: 15px;
   letter-spacing: 0;
 }
 
@@ -335,6 +355,26 @@ button {
 .start-button:disabled {
   cursor: wait;
   opacity: 0.65;
+  transform: none;
+}
+
+.start-button[aria-busy="true"] svg {
+  display: none;
+}
+
+.start-button[aria-busy="true"]::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .start-button svg,
@@ -352,21 +392,25 @@ button {
   align-items: center;
   justify-content: center;
   margin: 15px 0 0;
-  color: rgba(255, 255, 255, 0.42);
-  font-size: 10px;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .privacy-note svg {
   width: 13px;
   height: 13px;
+  flex-shrink: 0;
 }
 
 .error-panel {
   position: absolute;
   z-index: 6;
-  top: 50%;
+  top: calc(50% + 30px);
   left: 50%;
   width: min(calc(100% - 48px), 390px);
+  max-height: calc(100% - 100px);
+  overflow-y: auto;
   padding: 32px 24px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(10, 10, 13, 0.9);
@@ -384,15 +428,15 @@ button {
   color: var(--red);
 }
 
-.error-panel h1 {
+.error-panel h2 {
   margin: 16px 0 8px;
   font-size: 20px;
 }
 
 .error-panel p {
   margin: 0 0 24px;
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -405,24 +449,28 @@ button {
 .smile-callout {
   position: absolute;
   z-index: 2;
-  bottom: 122px;
-  left: 24px;
+  bottom: calc(var(--control-bottom) + 110px);
+  left: max(24px, env(safe-area-inset-left));
   display: grid;
   gap: 1px;
   pointer-events: none;
   opacity: 0;
+  visibility: hidden;
+  text-shadow: 0 1px 4px #000;
   transform: translateY(12px);
   transition: opacity 350ms ease, transform 350ms ease;
 }
 
 .app[data-state="live"] .smile-callout {
   opacity: 1;
+  visibility: visible;
   transform: translateY(0);
 }
 
 .smile-callout span {
   color: rgba(255, 255, 255, 0.72);
-  font-size: 10px;
+  font-size: 11px;
+  line-height: 1.5;
   font-weight: 800;
 }
 
@@ -439,14 +487,16 @@ button {
 .controls {
   position: absolute;
   z-index: 4;
-  bottom: max(22px, env(safe-area-inset-bottom));
+  bottom: var(--control-bottom);
   left: 50%;
-  display: flex;
+  display: grid;
+  grid-template-columns: 48px 72px 48px;
   align-items: center;
   justify-content: center;
-  gap: 28px;
+  gap: 32px;
   width: min(100% - 40px, 380px);
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
   transform: translateX(-50%) translateY(10px);
   transition: opacity 300ms ease, transform 300ms ease;
@@ -454,6 +504,7 @@ button {
 
 .app[data-state="live"] .controls {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
   transform: translateX(-50%) translateY(0);
 }
@@ -469,10 +520,10 @@ button {
 }
 
 .icon-button {
-  width: 46px;
-  height: 46px;
+  width: 48px;
+  height: 48px;
   border: 1px solid rgba(255, 255, 255, 0.24);
-  background: var(--glass);
+  background: rgba(6, 6, 8, 0.72);
 }
 
 .icon-button:active,
@@ -481,8 +532,8 @@ button {
 }
 
 .capture-button {
-  width: 66px;
-  height: 66px;
+  width: 72px;
+  height: 72px;
   padding: 5px;
   border: 2px solid #fff;
   background: transparent;
@@ -499,19 +550,18 @@ button {
 .toast {
   position: absolute;
   z-index: 8;
-  top: max(100px, calc(env(safe-area-inset-top) + 72px));
+  top: max(126px, calc(env(safe-area-inset-top) + 106px));
   left: 50%;
   min-width: 180px;
   max-width: calc(100% - 32px);
   padding: 10px 14px;
   border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.74);
-  font-size: 11px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.88);
+  font-size: 12px;
   font-weight: 800;
   line-height: 1.35;
   text-align: center;
-  backdrop-filter: blur(10px);
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, -8px);
@@ -521,6 +571,39 @@ button {
 .toast.visible {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+
+.controls button {
+  position: relative;
+  padding-inline: 0;
+  touch-action: manipulation;
+}
+
+.controls button::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 9px;
+  border-radius: 4px;
+  background: #141417;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.controls button:focus-visible::after {
+  visibility: visible;
+}
+
+@media (hover: hover) {
+  .controls button:hover::after { visibility: visible; }
+  .icon-button:hover { border-color: var(--cyan); }
+  .capture-button:hover { border-color: var(--cyan); }
 }
 
 @media (min-width: 768px) {
@@ -543,6 +626,9 @@ button {
     width: min(64vw, 720px);
   }
 
+  .intro-title { font-size: 96px; }
+  .signal-panel { right: 32px; }
+
   .permission-panel {
     width: 360px;
   }
@@ -555,24 +641,33 @@ button {
 @media (max-width: 380px) {
   .topbar { padding-right: 14px; padding-left: 14px; }
   .topbar-actions { gap: 6px; }
-  .signal-panel { right: 14px; width: 96px; }
-  .smile-meter { width: 96px; }
-  .smile-callout { bottom: 112px; left: 16px; }
-  .controls { gap: 20px; width: calc(100% - 28px); }
-  .icon-button { width: 42px; height: 42px; }
-  .capture-button { width: 60px; height: 60px; }
-  .intro-title { font-size: clamp(42px, 15vw, 64px); }
+  .signal-panel { right: 14px; }
+  .smile-callout { left: 16px; }
+  .controls { gap: 28px; width: calc(100% - 28px); }
+  .intro-title { font-size: 54px; }
   .permission-copy { font-size: 13px; }
 }
 
 @media (max-height: 560px) and (orientation: landscape) {
-  .start-screen { padding-top: 72px; padding-bottom: max(18px, env(safe-area-inset-bottom)); }
+  .app { --control-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .start-screen {
+    flex-direction: row;
+    align-items: center;
+    gap: 36px;
+    padding: max(80px, calc(env(safe-area-inset-top) + 60px)) max(32px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(32px, env(safe-area-inset-left));
+  }
+  .intro-lockup, .permission-panel { width: auto; flex: 1; min-width: 0; }
   .intro-kicker { margin-bottom: 8px; }
-  .intro-title { font-size: clamp(38px, 10vw, 72px); line-height: 0.82; }
+  .intro-title { font-size: 48px; }
   .permission-copy { margin-bottom: 8px; }
   .start-button { min-height: 46px; }
-  .smile-callout { bottom: 88px; }
-  .controls { bottom: max(12px, env(safe-area-inset-bottom)); }
+  .smile-callout { max-width: 150px; }
+  .smile-callout strong { font-size: 15px; }
+  .toast { top: 118px; }
+  .error-panel { padding: 18px 24px; }
+  .error-panel > svg { width: 24px; height: 24px; }
+  .error-panel h2 { margin-top: 8px; font-size: 18px; }
+  .error-panel p { margin-bottom: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

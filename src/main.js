@@ -514,7 +514,7 @@ function igniteSky(now) {
       ),
     );
   });
-  setCallout("LAUGH DETECTED", "FIREWORKS", true, 1700);
+  setCallout("LAUGH DETECTED", "Fireworks", true, 1700);
 }
 
 function setCallout(label, value, ignited = false, duration = 0) {
@@ -529,8 +529,8 @@ function setCallout(label, value, ignited = false, duration = 0) {
 }
 
 function updateCalloutForMode() {
-  if (state.expressionMode === "rain") setCallout("SMILE DETECTED", "RAINING");
-  else setCallout("EXPRESSION WEATHER", "READY");
+  if (state.expressionMode === "rain") setCallout("SMILE DETECTED", "Rain");
+  else setCallout("EXPRESSION WEATHER", "Ready");
 }
 
 function drawRain(context, dt, now) {
@@ -975,23 +975,23 @@ function updateExpression(rawScore, now) {
     }
     state.expressionMode = "laugh";
     state.rainTarget = 0;
-    ui.signalLabel.textContent = "LAUGH LOCKED";
+    ui.signalLabel.textContent = "Laugh detected";
   } else if (expression.mode === "rain") {
     state.laughAboveSince = 0;
     if (state.smoothedSmile < EXPRESSION.laughOff) state.laughArmed = true;
     state.expressionMode = "rain";
     state.rainTarget = clamp(0.62 + (state.smoothedSmile - EXPRESSION.rainOn) * 1.3, 0.62, 1);
-    ui.signalLabel.textContent = "SMILE / RAIN";
+    ui.signalLabel.textContent = "Smile detected";
     if (now > state.rainSuppressedUntil && !ui.smileCallout.classList.contains("ignited")) {
-      setCallout("SMILE DETECTED", "RAINING");
+      setCallout("SMILE DETECTED", "Rain");
     }
   } else {
     state.laughAboveSince = 0;
     if (state.smoothedSmile < EXPRESSION.laughOff) state.laughArmed = true;
     state.expressionMode = "neutral";
     state.rainTarget = 0;
-    ui.signalLabel.textContent = state.body.valid ? "BODY TRACKED" : "FACE TRACKED";
-    if (!ui.smileCallout.classList.contains("ignited")) setCallout("EXPRESSION WEATHER", "READY");
+    ui.signalLabel.textContent = "Face detected";
+    if (!ui.smileCallout.classList.contains("ignited")) setCallout("EXPRESSION WEATHER", "Ready");
   }
 }
 
@@ -1026,7 +1026,7 @@ function detectFace(now) {
       state.isSmiling = false;
       state.smoothedSmile = lerp(state.smoothedSmile, 0, 0.3);
       ui.smileFill.style.width = `${Math.round(state.smoothedSmile * 100)}%`;
-      ui.signalLabel.textContent = "FINDING FACE";
+      ui.signalLabel.textContent = "Looking for a face";
     }
   } catch (error) {
     console.warn("Face detection frame skipped", error);
@@ -1170,16 +1170,18 @@ function closeExperience() {
   ui.smileFill.style.width = "0%";
   ui.smileCallout.classList.remove("ignited");
   ui.smileCallout.querySelector("span").textContent = "EXPRESSION WEATHER";
-  ui.smileCallout.querySelector("strong").textContent = "READY";
-  state.calloutKey = "EXPRESSION WEATHER|READY|false";
+  ui.smileCallout.querySelector("strong").textContent = "Ready";
+  state.calloutKey = "EXPRESSION WEATHER|Ready|false";
   ui.toast.classList.remove("visible");
   ui.toast.textContent = "";
   ui.flash.classList.remove("active");
   ui.startButton.disabled = false;
-  ui.startButton.querySelector("span").textContent = "OPEN CAMERA";
+  ui.startButton.setAttribute("aria-busy", "false");
+  ui.startButton.querySelector("span").textContent = "Start camera";
   ctx.clearRect(0, 0, state.width, state.height);
 
   sound.pause();
+  ui.startButton.focus({ preventScroll: true });
 }
 
 function friendlyCameraError(error) {
@@ -1187,7 +1189,7 @@ function friendlyCameraError(error) {
   if (error?.name === "NotAllowedError") return "Camera permission was blocked. Allow access in your browser settings.";
   if (error?.name === "NotFoundError") return "No camera was found on this device.";
   if (error?.name === "NotReadableError") return "The camera is being used by another app.";
-  return "Camera or face tracking could not start. Please try again.";
+  return "The camera or effects could not load. Check your connection and try again.";
 }
 
 async function startExperience() {
@@ -1198,11 +1200,16 @@ async function startExperience() {
   ui.errorPanel.hidden = true;
   ui.app.dataset.state = "loading";
   ui.startButton.disabled = true;
-  ui.startButton.querySelector("span").textContent = "LOADING VISION...";
+  ui.startButton.setAttribute("aria-busy", "true");
+  ui.startButton.querySelector("span").textContent = "Starting camera...";
 
   try {
     await sound.unlock().catch(() => {});
-    await Promise.all([initVision(), startCamera()]);
+    await Promise.all([initVision(), startCamera().then(() => {
+      if (ui.app.dataset.state === "loading" && !state.landmarker) {
+        ui.startButton.querySelector("span").textContent = "Preparing effects...";
+      }
+    })]);
     state.running = true;
     state.lastVideoTime = -1;
     state.lastVisionAt = 0;
@@ -1211,9 +1218,11 @@ async function startExperience() {
     state.nextVisionTask = "face";
     state.lastRenderAt = performance.now();
     ui.app.dataset.state = "live";
+    ui.signalLabel.textContent = "Looking for a face";
     ui.startButton.disabled = false;
-    ui.startButton.querySelector("span").textContent = "OPEN CAMERA";
-    showToast("SMILE -> RAIN  /  LAUGH -> FIREWORKS", 4200);
+    ui.startButton.setAttribute("aria-busy", "false");
+    ui.startButton.querySelector("span").textContent = "Start camera";
+    showToast("Camera ready");
   } catch (error) {
     console.error(error);
     showError(error);
@@ -1228,7 +1237,9 @@ function showError(error) {
   ui.errorMessage.textContent = friendlyCameraError(error);
   ui.errorPanel.hidden = false;
   ui.startButton.disabled = false;
-  ui.startButton.querySelector("span").textContent = "OPEN CAMERA";
+  ui.startButton.setAttribute("aria-busy", "false");
+  ui.startButton.querySelector("span").textContent = "Start camera";
+  ui.retryButton.focus({ preventScroll: true });
 }
 
 function showToast(message, duration = 1400) {
@@ -1242,6 +1253,7 @@ function toggleSound() {
   sound.setEnabled(!sound.enabled);
   ui.soundButton.dataset.active = String(sound.enabled);
   ui.soundButton.setAttribute("aria-label", sound.enabled ? "Mute sound" : "Unmute sound");
+  ui.soundButton.dataset.tooltip = sound.enabled ? "Mute sound" : "Unmute sound";
   ui.soundButton.innerHTML = sound.enabled
     ? '<i data-lucide="volume-2" aria-hidden="true"></i>'
     : '<i data-lucide="volume-x" aria-hidden="true"></i>';
@@ -1287,7 +1299,7 @@ function capturePhoto() {
     anchor.download = `smile-live-${Date.now()}.png`;
     anchor.click();
     URL.revokeObjectURL(url);
-    showToast("PHOTO SAVED");
+    showToast("Photo ready");
   }, "image/png");
 }
 
@@ -1441,7 +1453,7 @@ if (qaMode) {
   state.rainTarget = 0.78;
   ui.app.dataset.state = "live";
   ui.signalLabel.textContent = "VISUAL QA";
-  setCallout("SMILE DETECTED", "RAINING");
+  setCallout("SMILE DETECTED", "Rain");
   if (qaVariant !== "rain" && qaVariant !== "shoulder") {
     window.setTimeout(() => igniteSky(performance.now()), 900);
     const qaLoop = window.setInterval(() => igniteSky(performance.now()), 4200);

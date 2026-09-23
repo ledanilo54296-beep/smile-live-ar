@@ -16,18 +16,15 @@
       <div class="flash" id="flash" aria-hidden="true"></div>
 
       <header class="topbar">
-        <a class="brand" href="#" aria-label="Smile Live home">
+        <div class="brand" aria-label="Smile Live">
           <span class="brand-mark" aria-hidden="true"></span>
           <span>SMILE/LIVE</span>
-        </a>
+        </div>
         <div class="topbar-actions">
-          <div class="live-badge" aria-label="Live experience">
+          <div class="live-badge" aria-label="Camera is on">
             <span class="live-dot"></span>
-            LIVE
+            CAMERA ON
           </div>
-          <button id="close-button" class="close-camera-button" type="button" aria-label="Close camera" title="Close camera">
-            <i data-lucide="camera-off" aria-hidden="true"></i>
-          </button>
         </div>
       </header>
 
@@ -39,20 +36,20 @@
       </section>
 
       <section id="start-screen" class="start-screen">
-        <div class="intro-lockup" aria-hidden="true">
+        <div class="intro-lockup">
           <span class="intro-kicker">LIVE AR WEATHER</span>
-          <div class="intro-title">
+          <h1 class="intro-title">
             <span>RAIN.</span>
             <span class="offset-title">SMILE.</span>
             <span class="outline-title">IGNITE.</span>
-          </div>
+          </h1>
         </div>
 
         <div class="permission-panel">
           <p class="permission-copy">Your expression controls the sky.</p>
           <button id="start-button" class="start-button" type="button">
             <i data-lucide="camera" aria-hidden="true"></i>
-            <span>OPEN CAMERA</span>
+            <span aria-live="polite">Start camera</span>
           </button>
           <p class="privacy-note">
             <i data-lucide="shield-check" aria-hidden="true"></i>
@@ -63,22 +60,25 @@
 
       <section id="error-panel" class="error-panel" role="alert" hidden>
         <i data-lucide="camera-off" aria-hidden="true"></i>
-        <h1>Camera unavailable</h1>
+        <h2>Unable to start</h2>
         <p id="error-message">Check camera access and try again.</p>
-        <button id="retry-button" class="secondary-button" type="button">TRY AGAIN</button>
+        <button id="retry-button" class="secondary-button" type="button">Try again</button>
       </section>
 
       <div id="smile-callout" class="smile-callout" aria-hidden="true">
         <span>EXPRESSION WEATHER</span>
-        <strong>READY</strong>
+        <strong>Ready</strong>
       </div>
 
       <footer class="controls">
-        <button id="sound-button" class="icon-button" type="button" aria-label="Mute sound" data-active="true">
+        <button id="sound-button" class="icon-button" type="button" aria-label="Mute sound" data-tooltip="Mute sound" data-active="true">
           <i data-lucide="volume-2" aria-hidden="true"></i>
         </button>
-        <button id="capture-button" class="capture-button" type="button" aria-label="Take photo">
+        <button id="capture-button" class="capture-button" type="button" aria-label="Save photo" data-tooltip="Save photo">
           <span></span>
+        </button>
+        <button id="close-button" class="close-camera-button" type="button" aria-label="Stop camera" data-tooltip="Stop camera">
+          <i data-lucide="camera-off" aria-hidden="true"></i>
         </button>
       </footer>
 
