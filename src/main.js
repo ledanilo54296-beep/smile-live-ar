@@ -60,6 +60,7 @@ const state = {
   stream: null,
   landmarker: null,
   visionPromise: null,
+  startup: { visionStartedAt: null, visionReadyAt: null, cameraMs: null, clickToReadyMs: null, firstInferenceMs: null, firstInferenceAt: null },
   running: false,
   pageVisible: !document.hidden,
   lastVideoTime: -1,
@@ -514,7 +515,7 @@ function igniteSky(now) {
       ),
     );
   });
-  setCallout("LAUGH DETECTED", "Fireworks", true, 1700);
+  setCallout("BIG SMILE DETECTED", "Fireworks", true, 1700);
 }
 
 function setCallout(label, value, ignited = false, duration = 0) {
@@ -975,7 +976,7 @@ function updateExpression(rawScore, now) {
     }
     state.expressionMode = "laugh";
     state.rainTarget = 0;
-    ui.signalLabel.textContent = "Laugh detected";
+    ui.signalLabel.textContent = "Big smile detected";
   } else if (expression.mode === "rain") {
     state.laughAboveSince = 0;
     if (state.smoothedSmile < EXPRESSION.laughOff) state.laughArmed = true;
@@ -1010,6 +1011,10 @@ function detectFace(now) {
   try {
     const result = state.landmarker.detectForVideo(inferenceCanvas, now);
     const elapsed = performance.now() - startedAt;
+    if (state.startup.firstInferenceMs === null) {
+      state.startup.firstInferenceMs = Math.round(elapsed);
+      state.startup.firstInferenceAt = Math.round(performance.now());
+    }
     state.metrics.inferenceMs = Math.round(elapsed * 10) / 10;
     const budgetedInterval = clamp(elapsed * 4, PERFORMANCE.minInferenceInterval, PERFORMANCE.maxInferenceInterval);
     state.inferenceInterval = lerp(state.inferenceInterval, budgetedInterval, 0.2);
@@ -1059,6 +1064,7 @@ async function createVisionTask(Task, fileset, options, label) {
 async function initVision() {
   if (state.landmarker) return [state.landmarker];
   if (state.visionPromise) return state.visionPromise;
+  state.startup.visionStartedAt = Math.round(performance.now());
   state.visionPromise = (async () => {
     const fileset = await FilesetResolver.forVisionTasks(`${import.meta.env.BASE_URL}wasm`);
     const faceOptions = {
@@ -1071,6 +1077,7 @@ async function initVision() {
       minTrackingConfidence: 0.5,
     };
     state.landmarker = await createVisionTask(FaceLandmarker, fileset, faceOptions, "Face tracking");
+    state.startup.visionReadyAt = Math.round(performance.now());
     return [state.landmarker];
   })().catch((error) => {
     state.visionPromise = null;
@@ -1091,6 +1098,7 @@ function waitForVideoMetadata() {
 }
 
 async function startCamera() {
+  const startedAt = performance.now();
   stopCamera();
   state.stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
@@ -1105,6 +1113,7 @@ async function startCamera() {
   await waitForVideoMetadata();
   await ui.video.play();
   prepareInferenceCanvases();
+  state.startup.cameraMs = Math.round(performance.now() - startedAt);
 }
 
 function stopCamera() {
@@ -1193,6 +1202,11 @@ function friendlyCameraError(error) {
 }
 
 async function startExperience() {
+  const clickedAt = performance.now();
+  state.startup.cameraMs = null;
+  state.startup.clickToReadyMs = null;
+  state.startup.firstInferenceMs = null;
+  state.startup.firstInferenceAt = null;
   if (!navigator.mediaDevices?.getUserMedia) {
     showError(new Error("Camera API unavailable"));
     return;
@@ -1204,13 +1218,14 @@ async function startExperience() {
   ui.startButton.querySelector("span").textContent = "Starting camera...";
 
   try {
-    await sound.unlock().catch(() => {});
+    sound.unlock().catch(() => {});
     await Promise.all([initVision(), startCamera().then(() => {
       if (ui.app.dataset.state === "loading" && !state.landmarker) {
         ui.startButton.querySelector("span").textContent = "Preparing effects...";
       }
     })]);
     state.running = true;
+    state.startup.clickToReadyMs = Math.round(performance.now() - clickedAt);
     state.lastVideoTime = -1;
     state.lastVisionAt = 0;
     state.lastDetectionAt = 0;
@@ -1321,6 +1336,7 @@ document.addEventListener("visibilitychange", () => {
 Object.defineProperty(window, "__SMILE_LIVE_METRICS__", {
   get: () => ({
     ...state.metrics,
+    startup: { ...state.startup },
     inferenceInterval: Math.round(state.inferenceInterval),
     poseInterval: Math.round(state.poseInterval),
     rainAmount: Math.round(state.rainAmount * 100) / 100,
