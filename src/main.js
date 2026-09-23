@@ -1,4 +1,4 @@
-import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+import { FaceTracker } from "./vision.js";
 import { createIcons, Camera, CameraOff, ShieldCheck, Volume2, VolumeX } from "lucide";
 import { classifyExpression, EXPRESSION_THRESHOLDS, smoothSmile } from "./expression.js";
 import { reflectVelocity, segmentEllipseIntersection } from "./physics.js";
@@ -35,12 +35,10 @@ const PERFORMANCE = {
   inferenceWidth: 384,
   minVisionGap: 52,
   minInferenceInterval: 84,
-  maxInferenceInterval: 150,
+  maxInferenceInterval: 700,
   maxRain: 56,
   maxFireworks: 180,
   maxSparks: 48,
-  visionFilesetTimeoutMs: 5000,
-  visionTaskTimeoutMs: 10000,
 };
 
 const EXPRESSION = {
@@ -54,7 +52,7 @@ const palette = ["#62e5ff", "#ff6385", "#fff3cc", "#ffc56e", "#bdcaff"];
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const ctx = ui.canvas.getContext("2d", { alpha: true, desynchronized: true });
 const inferenceCanvas = document.createElement("canvas");
-const inferenceContext = inferenceCanvas.getContext("2d", { alpha: false, desynchronized: true });
+const inferenceContext = inferenceCanvas.getContext("2d", { alpha: false, willReadFrequently: true });
 
 const state = {
   width: window.innerWidth,
@@ -62,7 +60,8 @@ const state = {
   stream: null,
   landmarker: null,
   visionPromise: null,
-  visionModelPromise: null,
+  inferencePending: false,
+  inferenceTask: null,
   visionGeneration: 0,
   startup: { visionStartedAt: null, visionReadyAt: null, visionStage: "idle", cameraMs: null, clickToPreviewMs: null, clickToReadyMs: null, firstInferenceMs: null, firstInferenceAt: null },
   startAttempt: 0,
@@ -121,6 +120,9 @@ const state = {
     poseShoulderCollisionCount: 0,
     fallbackShoulderCollisionCount: 0,
     rainImpactCount: 0,
+    inferenceCount: 0,
+    faceCount: 0,
+    fireworkCount: 0,
   },
 };
 
@@ -494,6 +496,7 @@ function createBurst(x, y, baseColor) {
 }
 
 function igniteSky(now) {
+  state.metrics.fireworkCount += 1;
   state.lastIgnitionAt = now;
   state.rainSuppressedUntil = now + 1600;
   const head = state.head.valid
@@ -689,7 +692,7 @@ function drawScene(now) {
   predictPoseColliders(now);
   state.collisionMask = state.silhouette && now - state.silhouette.updatedAt < 360 ? state.silhouette : null;
   state.collisionHead = null;
-  if (state.head.valid && now - state.head.updatedAt < 360) {
+  if (state.head.valid && now - state.head.updatedAt < Math.max(360, state.inferenceInterval + state.metrics.inferenceMs + 150)) {
     const headAge = clamp((now - state.head.updatedAt) / 1000, 0, 0.08);
     state.collisionHead = { ...state.head, cx: state.head.cx + state.head.vx * headAge, cy: state.head.cy + state.head.vy * headAge };
   }
@@ -739,10 +742,11 @@ function cameraTransform() {
 }
 
 function updateHeadCollider(landmarks, now) {
-  const left = projectLandmark(landmarks[234]);
-  const right = projectLandmark(landmarks[454]);
-  const top = projectLandmark(landmarks[10]);
-  const bottom = projectLandmark(landmarks[152]);
+  const left = projectLandmark(landmarks[0]);
+  const right = projectLandmark(landmarks[16]);
+  const brow = projectLandmark(landmarks[27]);
+  const bottom = projectLandmark(landmarks[8]);
+  const top = { x: brow.x, y: brow.y - Math.abs(bottom.y - brow.y) * 0.65 };
   const faceWidth = Math.abs(right.x - left.x);
   const faceHeight = Math.abs(bottom.y - top.y);
   const targetX = (left.x + right.x) / 2;
@@ -950,20 +954,6 @@ function fadeBodyTracking() {
   refreshBodyColliders();
 }
 
-function getSmileScore(blendshapes) {
-  let mouthLeft = 0;
-  let mouthRight = 0;
-  let cheekLeft = 0;
-  let cheekRight = 0;
-  for (const shape of blendshapes) {
-    if (shape.categoryName === "mouthSmileLeft") mouthLeft = shape.score;
-    else if (shape.categoryName === "mouthSmileRight") mouthRight = shape.score;
-    else if (shape.categoryName === "cheekSquintLeft") cheekLeft = shape.score;
-    else if (shape.categoryName === "cheekSquintRight") cheekRight = shape.score;
-  }
-  return clamp((mouthLeft + mouthRight) * 0.43 + (cheekLeft + cheekRight) * 0.07, 0, 1);
-}
-
 function updateExpression(rawScore, now) {
   state.smoothedSmile = smoothSmile(state.smoothedSmile, rawScore, state.lastExpressionAt ? now - state.lastExpressionAt : 100);
   state.lastExpressionAt = now;
@@ -1008,70 +998,61 @@ function prepareInferenceCanvases() {
   inferenceCanvas.height = Math.max(1, Math.round((videoHeight / videoWidth) * PERFORMANCE.inferenceWidth));
 }
 
-function detectFace(now) {
+async function detectFace(now) {
+  const attempt = state.startAttempt;
+  state.inferencePending = true;
   state.lastDetectionAt = now;
-  inferenceContext.drawImage(ui.video, 0, 0, inferenceCanvas.width, inferenceCanvas.height);
-  const startedAt = performance.now();
-
   try {
-    const result = state.landmarker.detectForVideo(inferenceCanvas, now);
-    const elapsed = performance.now() - startedAt;
+    inferenceContext.drawImage(ui.video, 0, 0, inferenceCanvas.width, inferenceCanvas.height);
+    const image = inferenceContext.getImageData(0, 0, inferenceCanvas.width, inferenceCanvas.height);
+    const { result, inferenceMs: elapsed } = await state.landmarker.detect(image);
+    if (attempt !== state.startAttempt || !state.pageVisible) return;
+    now = performance.now();
     if (state.startup.firstInferenceMs === null) {
       state.startup.firstInferenceMs = Math.round(elapsed);
       state.startup.firstInferenceAt = Math.round(performance.now());
     }
     state.metrics.inferenceMs = Math.round(elapsed * 10) / 10;
-    const budgetedInterval = clamp(elapsed * 4, PERFORMANCE.minInferenceInterval, PERFORMANCE.maxInferenceInterval);
+    state.metrics.inferenceCount += 1;
+    const budgetedInterval = clamp(elapsed * 1.3, PERFORMANCE.minInferenceInterval, PERFORMANCE.maxInferenceInterval);
     state.inferenceInterval = lerp(state.inferenceInterval, budgetedInterval, 0.2);
-    const landmarks = result.faceLandmarks?.[0];
-    const blendshapes = result.faceBlendshapes?.[0]?.categories;
+    const landmarks = result?.points;
 
     if (landmarks) {
+      state.metrics.faceCount += 1;
       updateHeadCollider(landmarks, now);
-      updateExpression(blendshapes ? getSmileScore(blendshapes) : 0, now);
+      updateExpression(result.smile, now);
     } else {
-      state.head.alpha = lerp(state.head.alpha, 0, 0.2);
-      if (state.head.alpha < 0.04) state.head.valid = false;
+      state.head.valid = false;
       state.rainTarget = 0;
       state.isSmiling = false;
+      state.expressionMode = "neutral";
+      state.laughAboveSince = 0;
       state.smoothedSmile = lerp(state.smoothedSmile, 0, 0.3);
       ui.smileFill.style.width = `${Math.round(state.smoothedSmile * 100)}%`;
       ui.signalLabel.textContent = "Looking for a face";
     }
   } catch (error) {
-    console.warn("Face detection frame skipped", error);
+    if (attempt === state.startAttempt) {
+      state.landmarker?.close();
+      state.landmarker = null;
+      state.visionPromise = null;
+      throw error;
+    }
+  } finally {
+    state.inferencePending = false;
   }
 }
 
 function detectVision(now) {
-  if (!state.landmarker || ui.video.readyState < 2) return;
+  if (!state.landmarker || state.inferencePending || ui.video.readyState < 2) return;
   if (ui.video.currentTime === state.lastVideoTime || now - state.lastVisionAt < PERFORMANCE.minVisionGap) return;
 
   const faceDue = now - state.lastDetectionAt >= state.inferenceInterval;
   if (!faceDue) return;
   state.lastVideoTime = ui.video.currentTime;
   state.lastVisionAt = now;
-  detectFace(now);
-}
-
-async function createVisionTask(Task, fileset, options, label) {
-  try {
-    return await Task.createFromOptions(fileset, options);
-  } catch (gpuError) {
-    console.warn(`${label} GPU unavailable; falling back to CPU`, gpuError);
-    return Task.createFromOptions(fileset, {
-      ...options,
-      baseOptions: { ...options.baseOptions, delegate: "CPU" },
-    });
-  }
-}
-
-function rejectAfter(promise, timeoutMs, code, message) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = window.setTimeout(() => reject(Object.assign(new Error(message), { code })), timeoutMs);
-  });
-  return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timer));
+  state.inferenceTask = detectFace(now).catch(showError);
 }
 
 async function initVision() {
@@ -1080,66 +1061,28 @@ async function initVision() {
   const generation = ++state.visionGeneration;
   state.startup.visionStartedAt = Math.round(performance.now());
   state.startup.visionStage = "loading assets";
+  const tracker = new FaceTracker((stage) => {
+    if (generation === state.visionGeneration) state.startup.visionStage = stage;
+  });
   const createTask = (async () => {
-    const modelUrl = `${import.meta.env.BASE_URL}models/face_landmarker.task`;
-    if (!state.visionModelPromise) {
-      state.visionModelPromise = fetch(modelUrl, { cache: "force-cache", credentials: "same-origin" })
-        .then((response) => {
-          if (!response.ok) throw Object.assign(new Error(`Model request failed: ${response.status}`), { code: "VISION_MODEL_HTTP" });
-          return response.arrayBuffer();
-        });
-    }
-    const filesetPromise = rejectAfter(
-      FilesetResolver.forVisionTasks(`${import.meta.env.BASE_URL}wasm`),
-      PERFORMANCE.visionFilesetTimeoutMs,
-      "VISION_WASM_TIMEOUT",
-      "Vision runtime took too long to load",
-    );
-    const modelPromise = rejectAfter(
-      state.visionModelPromise,
-      PERFORMANCE.visionFilesetTimeoutMs,
-      "VISION_MODEL_TIMEOUT",
-      "Face model took too long to download",
-    );
-    const [fileset, modelBuffer] = await Promise.all([filesetPromise, modelPromise]);
-    state.startup.visionStage = "starting tracker";
-    const mobile = /Android|iPhone|iPad|iPod|Mobile|MicroMessenger|WeChat/i.test(navigator.userAgent);
-    const delegate = mobile ? "CPU" : "GPU";
-    const faceOptions = {
-      baseOptions: { modelAssetBuffer: new Uint8Array(modelBuffer), delegate },
-      runningMode: "VIDEO",
-      numFaces: 1,
-      outputFaceBlendshapes: true,
-      minFaceDetectionConfidence: 0.55,
-      minFacePresenceConfidence: 0.55,
-      minTrackingConfidence: 0.5,
-    };
-    const landmarker = await rejectAfter(
-      createVisionTask(FaceLandmarker, fileset, faceOptions, "Face tracking"),
-      PERFORMANCE.visionTaskTimeoutMs,
-      "VISION_TASK_TIMEOUT",
-      "Face effects took too long to initialize",
-    );
+    await tracker.ready;
     if (generation !== state.visionGeneration) {
-      landmarker.close();
+      tracker.close();
       throw Object.assign(new Error("Face effects load was canceled"), { code: "VISION_CANCELED" });
     }
-    state.landmarker = landmarker;
+    state.landmarker = tracker;
     state.startup.visionReadyAt = Math.round(performance.now());
     state.startup.visionStage = "ready";
     return [state.landmarker];
   })();
   state.visionPromise = createTask.catch((error) => {
+    tracker.close();
     if (state.visionGeneration === generation) {
       state.visionGeneration += 1;
       state.visionPromise = null;
-      state.visionModelPromise = null;
       state.startup.visionStage = "failed";
     }
     throw error;
-  });
-  state.visionPromise.catch(() => {
-    if (state.visionGeneration === generation) state.visionPromise = null;
   });
   return state.visionPromise;
 }
@@ -1266,9 +1209,6 @@ function friendlyCameraError(error) {
   if (error?.name === "NotAllowedError") return "Camera permission was blocked. Allow access in your browser settings.";
   if (error?.name === "NotFoundError") return "No camera was found on this device.";
   if (error?.name === "NotReadableError") return "The camera is being used by another app.";
-  if (error?.code === "VISION_TIMEOUT") return "Face effects took too long to load. Check your connection and try again.";
-  if (error?.code === "VISION_WASM_TIMEOUT" || error?.code === "VISION_MODEL_TIMEOUT") return "Face effects are still loading. Check your connection and try again.";
-  if (error?.code === "VISION_TASK_TIMEOUT") return "Face tracking could not start on this browser. Try again once.";
   if (error?.code === "VISION_CANCELED") return "Face effects stopped loading. Try again.";
   return "The camera or effects could not load. Check your connection and try again.";
 }
@@ -1300,6 +1240,11 @@ async function startExperience() {
       ui.signalLabel.textContent = "Preparing effects...";
     })]);
     if (attempt !== state.startAttempt) return;
+    await state.inferenceTask?.catch(() => {});
+    if (attempt !== state.startAttempt) return;
+    state.inferenceTask = detectFace(performance.now());
+    await state.inferenceTask;
+    if (attempt !== state.startAttempt) return;
     state.running = true;
     state.startup.clickToReadyMs = Math.round(performance.now() - clickedAt);
     state.lastVideoTime = -1;
@@ -1309,7 +1254,6 @@ async function startExperience() {
     state.nextVisionTask = "face";
     state.lastRenderAt = performance.now();
     ui.app.dataset.state = "live";
-    ui.signalLabel.textContent = "Looking for a face";
     ui.startButton.disabled = false;
     ui.startButton.setAttribute("aria-busy", "false");
     ui.startButton.querySelector("span").textContent = "Start camera";
@@ -1327,6 +1271,7 @@ function showError(error) {
   stopCamera();
   sound.pause();
   ui.app.dataset.state = "error";
+  ui.signalLabel.textContent = "CAMERA OFF";
   ui.errorMessage.textContent = friendlyCameraError(error);
   ui.errorPanel.hidden = false;
   ui.startButton.disabled = false;
@@ -1402,7 +1347,10 @@ ui.closeButton.addEventListener("click", closeExperience);
 ui.soundButton.addEventListener("click", toggleSound);
 ui.captureButton.addEventListener("click", capturePhoto);
 window.addEventListener("resize", resizeCanvas, { passive: true });
-window.addEventListener("beforeunload", stopCamera);
+window.addEventListener("beforeunload", () => {
+  stopCamera();
+  state.landmarker?.close();
+});
 document.addEventListener("visibilitychange", () => {
   state.pageVisible = !document.hidden;
   state.lastRenderAt = performance.now();

@@ -1,0 +1,72 @@
+import { models } from './vision-models.js';
+import { smileFromLandmarks } from './expression.js';
+
+let api;
+let canvas;
+let context;
+let ready;
+
+async function initialize() {
+  const [library, buffers] = await Promise.all([
+    import('@vladmandic/face-api/dist/face-api.esm.js'),
+    Promise.all(models.map(async ({ url }) => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Vision asset failed: ${response.status}`);
+      return response.arrayBuffer();
+    })),
+  ]);
+  api = library;
+  // FaceAPI's documented environment adapter lets it use worker canvases.
+  class UnusedMedia {}
+  api.env.setEnv({
+    Canvas: OffscreenCanvas,
+    CanvasRenderingContext2D: OffscreenCanvasRenderingContext2D,
+    Image: UnusedMedia,
+    Video: UnusedMedia,
+    ImageData,
+    createCanvasElement: () => new OffscreenCanvas(1, 1),
+    fetch: fetch.bind(self),
+  });
+  // CPU avoids expensive first-frame shader compilation and runs off the UI thread.
+  await api.tf.setBackend('cpu');
+  await api.tf.ready();
+  models.forEach(({ name, weights }, index) => {
+    api.nets[name].loadFromWeightMap(api.tf.io.decodeWeights(buffers[index], weights));
+  });
+  canvas = new OffscreenCanvas(1, 1);
+  context = canvas.getContext('2d', { willReadFrequently: true });
+}
+
+self.onmessage = async ({ data }) => {
+  const { id, type } = data;
+  try {
+    if (type === 'init') {
+      ready = initialize();
+      await ready;
+      self.postMessage({ id, type: 'ready' });
+      return;
+    }
+    await ready;
+    const startedAt = performance.now();
+    const { width, height, pixels } = data;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    context.putImageData(new ImageData(new Uint8ClampedArray(pixels), width, height), 0, 0);
+    const face = await api.detectSingleFace(canvas, new api.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+      .withFaceLandmarks(true).withFaceExpressions();
+    let result = null;
+    if (face) {
+      const points = face.landmarks.positions.map(({ x, y }) => ({ x: x / width, y: y / height }));
+      result = {
+        points,
+        smile: smileFromLandmarks(face.expressions.happy, points, width / height),
+        confidence: face.detection.score,
+      };
+    }
+    self.postMessage({ id, result, inferenceMs: performance.now() - startedAt });
+  } catch (error) {
+    self.postMessage({ id, error: error.message });
+  }
+};

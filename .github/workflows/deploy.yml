@@ -32,6 +32,18 @@ jobs:
       - run: npm run build
         env:
           VITE_BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+      - run: npx playwright install --with-deps chromium
+      - name: Verify Real Model And Expression Effects
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4191 > /tmp/smile-preview.log 2>&1 &
+          npm run test:browser -- "http://127.0.0.1:4191${{ steps.pages.outputs.base_path }}/"
+        env:
+          VITE_BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-acceptance
+          path: artifacts/browser-chromium/
       - uses: actions/upload-pages-artifact@v4
         with:
           path: dist

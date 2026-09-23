@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyExpression, smoothSmile } from "./expression.js";
+import { classifyExpression, smoothSmile, smileFromLandmarks } from "./expression.js";
 
 test("neutral expression has no weather effect", () => {
   assert.deepEqual(classifyExpression(0.12, false), { mode: "neutral", isSmiling: false });
@@ -37,4 +37,31 @@ test("smile smoothing responds consistently across inference rates", () => {
   assert.ok(Math.abs(fast - slow) < 0.000001);
   assert.equal(classifyExpression(slow, false).mode, "rain");
   assert.equal(classifyExpression(smoothSmile(0, 0.25, 100), false).mode, "neutral");
+});
+
+const mouth = (opening) => {
+  const points = Array.from({ length: 68 }, () => ({ x: 0.5, y: 0.5 }));
+  points[48] = { x: 0.4, y: 0.5 };
+  points[54] = { x: 0.6, y: 0.5 };
+  points[62] = { x: 0.5, y: 0.5 - opening * 0.1 };
+  points[66] = { x: 0.5, y: 0.5 + opening * 0.1 };
+  return points;
+};
+
+test("a closed smile produces rain even when smile confidence saturates", () => {
+  assert.equal(classifyExpression(smileFromLandmarks(1, mouth(0.05)), false).mode, "rain");
+});
+
+test("open smiling mouth triggers fireworks but a non-smiling open mouth does not", () => {
+  assert.equal(classifyExpression(smileFromLandmarks(0.95, mouth(0.3)), false).mode, "laugh");
+  assert.equal(classifyExpression(smileFromLandmarks(0.05, mouth(0.6)), false).mode, "neutral");
+});
+
+test("mouth score is unchanged by image aspect ratio or head rotation", () => {
+  const points = mouth(0.3);
+  const score = smileFromLandmarks(0.9, points);
+  const wide = points.map(({ x, y }) => ({ x: x / 2, y }));
+  const rotated = points.map(({ x, y }) => ({ x: x * Math.cos(0.5) - y * Math.sin(0.5), y: x * Math.sin(0.5) + y * Math.cos(0.5) }));
+  assert.ok(Math.abs(score - smileFromLandmarks(0.9, wide, 2)) < 1e-6);
+  assert.ok(Math.abs(score - smileFromLandmarks(0.9, rotated)) < 1e-6);
 });
