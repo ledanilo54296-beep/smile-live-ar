@@ -39,7 +39,8 @@ const PERFORMANCE = {
   maxRain: 56,
   maxFireworks: 180,
   maxSparks: 48,
-  visionTimeoutMs: 18000,
+  visionFilesetTimeoutMs: 5000,
+  visionTaskTimeoutMs: 10000,
 };
 
 const EXPRESSION = {
@@ -61,8 +62,9 @@ const state = {
   stream: null,
   landmarker: null,
   visionPromise: null,
+  visionModelPromise: null,
   visionGeneration: 0,
-  startup: { visionStartedAt: null, visionReadyAt: null, cameraMs: null, clickToPreviewMs: null, clickToReadyMs: null, firstInferenceMs: null, firstInferenceAt: null },
+  startup: { visionStartedAt: null, visionReadyAt: null, visionStage: "idle", cameraMs: null, clickToPreviewMs: null, clickToReadyMs: null, firstInferenceMs: null, firstInferenceAt: null },
   startAttempt: 0,
   running: false,
   pageVisible: !document.hidden,
@@ -1064,29 +1066,47 @@ async function createVisionTask(Task, fileset, options, label) {
   }
 }
 
+function rejectAfter(promise, timeoutMs, code, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = window.setTimeout(() => reject(Object.assign(new Error(message), { code })), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timer));
+}
+
 async function initVision() {
   if (state.landmarker) return [state.landmarker];
   if (state.visionPromise) return state.visionPromise;
   const generation = ++state.visionGeneration;
   state.startup.visionStartedAt = Math.round(performance.now());
+  state.startup.visionStage = "loading assets";
   const createTask = (async () => {
-    // Start the model alongside the runtime, after the interface has loaded.
-    if (!document.querySelector('link[data-vision-model]')) {
-      const preload = document.createElement("link");
-      preload.rel = "preload";
-      preload.as = "fetch";
-      preload.crossOrigin = "anonymous";
-      preload.href = `${import.meta.env.BASE_URL}models/face_landmarker.task`;
-      preload.fetchPriority = "low";
-      preload.dataset.visionModel = "";
-      document.head.append(preload);
+    const modelUrl = `${import.meta.env.BASE_URL}models/face_landmarker.task`;
+    if (!state.visionModelPromise) {
+      state.visionModelPromise = fetch(modelUrl, { cache: "force-cache", credentials: "same-origin" })
+        .then((response) => {
+          if (!response.ok) throw Object.assign(new Error(`Model request failed: ${response.status}`), { code: "VISION_MODEL_HTTP" });
+          return response.arrayBuffer();
+        });
     }
-    const fileset = await FilesetResolver.forVisionTasks(`${import.meta.env.BASE_URL}wasm`);
-    // WeChat's iOS/Android WebViews can leave GPU delegate creation pending.
-    // CPU is slower but deterministic there, and the inference loop is capped.
-    const delegate = /MicroMessenger|WeChat/i.test(navigator.userAgent) ? "CPU" : "GPU";
+    const filesetPromise = rejectAfter(
+      FilesetResolver.forVisionTasks(`${import.meta.env.BASE_URL}wasm`),
+      PERFORMANCE.visionFilesetTimeoutMs,
+      "VISION_WASM_TIMEOUT",
+      "Vision runtime took too long to load",
+    );
+    const modelPromise = rejectAfter(
+      state.visionModelPromise,
+      PERFORMANCE.visionFilesetTimeoutMs,
+      "VISION_MODEL_TIMEOUT",
+      "Face model took too long to download",
+    );
+    const [fileset, modelBuffer] = await Promise.all([filesetPromise, modelPromise]);
+    state.startup.visionStage = "starting tracker";
+    const mobile = /Android|iPhone|iPad|iPod|Mobile|MicroMessenger|WeChat/i.test(navigator.userAgent);
+    const delegate = mobile ? "CPU" : "GPU";
     const faceOptions = {
-      baseOptions: { modelAssetPath: `${import.meta.env.BASE_URL}models/face_landmarker.task`, delegate },
+      baseOptions: { modelAssetBuffer: new Uint8Array(modelBuffer), delegate },
       runningMode: "VIDEO",
       numFaces: 1,
       outputFaceBlendshapes: true,
@@ -1094,22 +1114,27 @@ async function initVision() {
       minFacePresenceConfidence: 0.55,
       minTrackingConfidence: 0.5,
     };
-    const landmarker = await createVisionTask(FaceLandmarker, fileset, faceOptions, "Face tracking");
+    const landmarker = await rejectAfter(
+      createVisionTask(FaceLandmarker, fileset, faceOptions, "Face tracking"),
+      PERFORMANCE.visionTaskTimeoutMs,
+      "VISION_TASK_TIMEOUT",
+      "Face effects took too long to initialize",
+    );
     if (generation !== state.visionGeneration) {
       landmarker.close();
       throw Object.assign(new Error("Face effects load was canceled"), { code: "VISION_CANCELED" });
     }
     state.landmarker = landmarker;
     state.startup.visionReadyAt = Math.round(performance.now());
+    state.startup.visionStage = "ready";
     return [state.landmarker];
   })();
-  const timeout = new Promise((_, reject) => {
-    window.setTimeout(() => reject(Object.assign(new Error("Face effects timed out"), { code: "VISION_TIMEOUT" })), PERFORMANCE.visionTimeoutMs);
-  });
-  state.visionPromise = Promise.race([createTask, timeout]).catch((error) => {
+  state.visionPromise = createTask.catch((error) => {
     if (state.visionGeneration === generation) {
       state.visionGeneration += 1;
       state.visionPromise = null;
+      state.visionModelPromise = null;
+      state.startup.visionStage = "failed";
     }
     throw error;
   });
@@ -1242,6 +1267,8 @@ function friendlyCameraError(error) {
   if (error?.name === "NotFoundError") return "No camera was found on this device.";
   if (error?.name === "NotReadableError") return "The camera is being used by another app.";
   if (error?.code === "VISION_TIMEOUT") return "Face effects took too long to load. Check your connection and try again.";
+  if (error?.code === "VISION_WASM_TIMEOUT" || error?.code === "VISION_MODEL_TIMEOUT") return "Face effects are still loading. Check your connection and try again.";
+  if (error?.code === "VISION_TASK_TIMEOUT") return "Face tracking could not start on this browser. Try again once.";
   if (error?.code === "VISION_CANCELED") return "Face effects stopped loading. Try again.";
   return "The camera or effects could not load. Check your connection and try again.";
 }
