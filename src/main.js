@@ -1067,6 +1067,16 @@ async function initVision() {
   state.startup.visionStartedAt = Math.round(performance.now());
   state.visionPromise = (async () => {
     const fileset = await FilesetResolver.forVisionTasks(`${import.meta.env.BASE_URL}wasm`);
+    // The runtime otherwise waits for its loader script before requesting WASM.
+    if (!document.querySelector('link[data-vision-wasm]')) {
+      const preload = document.createElement("link");
+      preload.rel = "preload";
+      preload.as = "fetch";
+      preload.crossOrigin = "anonymous";
+      preload.href = fileset.wasmBinaryPath;
+      preload.dataset.visionWasm = "";
+      document.head.append(preload);
+    }
     const faceOptions = {
       baseOptions: { modelAssetPath: `${import.meta.env.BASE_URL}models/face_landmarker.task`, delegate: "GPU" },
       runningMode: "VIDEO",
