@@ -8,15 +8,18 @@ let api;
 let canvas;
 let context;
 let ready;
+let segmenter;
+let segmentHead;
 
 async function initialize() {
-  const [library, buffers] = await Promise.all([
+  const [library, buffers, segmentation] = await Promise.all([
     import('@vladmandic/face-api/dist/face-api.esm-nobundle.js'),
     Promise.all(models.map(async ({ url }) => {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Vision asset failed: ${response.status}`);
       return response.arrayBuffer();
     })),
+    import('./segmentation.js'),
   ]);
   api = library;
   // FaceAPI's documented environment adapter lets it use worker canvases.
@@ -39,6 +42,8 @@ async function initialize() {
   });
   await api.tf.setBackend('wasm');
   await api.tf.ready();
+  segmenter = await segmentation.createSegmenter();
+  segmentHead = segmentation.segmentHead;
   models.forEach(({ name, weights }, index) => {
     api.nets[name].loadFromWeightMap(api.tf.io.decodeWeights(buffers[index], weights));
   });
@@ -71,10 +76,11 @@ self.onmessage = async ({ data }) => {
       result = {
         points,
         smile: smileFromLandmarks(face.expressions.happy, points, width / height),
+        mask: await segmentHead(segmenter, canvas, points),
         confidence: face.detection.score,
       };
     }
-    self.postMessage({ id, result, inferenceMs: performance.now() - startedAt, backend: api.tf.getBackend() });
+    self.postMessage({ id, result, inferenceMs: performance.now() - startedAt, backend: api.tf.getBackend() }, result ? [result.mask.data.buffer] : []);
   } catch (error) {
     self.postMessage({ id, error: error.message });
   }

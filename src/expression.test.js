@@ -54,6 +54,17 @@ test("a faint closed smile now starts rain without changing the fireworks thresh
   assert.equal(classifyExpression(0.60, true).mode, "laugh");
 });
 
+test("low-confidence closed smiles use raised mouth corners without requiring jaw opening", () => {
+  const points = mouth(0.02);
+  points[27] = { x: 0.5, y: 0.3 };
+  points[8] = { x: 0.5, y: 0.7 };
+  points[51] = { x: 0.5, y: 0.51 };
+  points[57] = { x: 0.5, y: 0.52 };
+  assert.equal(classifyExpression(smileFromLandmarks(0.16, points), false).mode, "rain");
+  assert.equal(classifyExpression(smileFromLandmarks(0.03, points), false).mode, "neutral");
+  assert.ok(smileFromLandmarks(0.95, points) < 0.60, "Closed smile boost cannot trigger fireworks");
+});
+
 test("a closed smile produces rain even when smile confidence saturates", () => {
   assert.equal(classifyExpression(smileFromLandmarks(1, mouth(0.05)), false).mode, "rain");
 });

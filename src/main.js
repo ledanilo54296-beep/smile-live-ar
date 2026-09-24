@@ -1,8 +1,8 @@
 import { FaceTracker } from "./vision.js";
 import { createIcons, Camera, CameraOff, ShieldCheck, Volume2, VolumeX } from "lucide";
 import { classifyExpression, EXPRESSION_THRESHOLDS, smoothSmile } from "./expression.js";
-import { fitHeadEllipse, reflectVelocity, segmentEllipseIntersection } from "./physics.js";
-import { coverTransform } from "./silhouette.js";
+import { fitHeadEllipse, reflectVelocity } from "./physics.js";
+import { coverTransform, segmentSilhouetteIntersection } from "./silhouette.js";
 import { SoundEngine } from "./sound.js";
 import "./style.css";
 
@@ -424,9 +424,14 @@ function recordPersonCollision(part) {
 }
 
 function findPersonCollision(x0, y0, x1, y1) {
-  if (!state.collisionHead) return null;
-  const hit = segmentEllipseIntersection(x0, y0, x1, y1, state.collisionHead);
-  return hit ? { ...hit, vx: state.collisionHead.vx, vy: state.collisionHead.vy, part: "head", source: "face" } : null;
+  const mask = state.collisionMask;
+  if (!mask) return null;
+  const hit = segmentSilhouetteIntersection(x0, y0, x1, y1, mask);
+  if (!hit) return null;
+  const x = (hit.x - mask.ox) / mask.sx, y = (hit.y - mask.oy) / mask.sy;
+  const bounds = mask.bounds;
+  if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return null;
+  return { ...hit, vx: state.head.vx, vy: state.head.vy, part: "head", source: "silhouette" };
 }
 
 function resolvePersonCollision(particle) {
@@ -500,18 +505,12 @@ function igniteSky(now) {
   state.metrics.fireworkCount += 1;
   state.lastIgnitionAt = now;
   state.rainSuppressedUntil = now + 1600;
-  const head = state.head.valid
-    ? state.head
-    : { cx: state.width / 2, cy: state.height * 0.48, rx: 90, ry: 120 };
-  const safeTop = Math.max(96, state.height * 0.12);
-  const topY = clamp(head.cy - head.ry * 1.48, safeTop, state.height * 0.48);
-  const sideY = clamp(head.cy - head.ry * 0.92, safeTop + 30, state.height * 0.53);
-  const margin = Math.max(58, state.width * 0.1);
   const targets = [
-    { x: clamp(head.cx, margin, state.width - margin), y: topY },
-    { x: clamp(head.cx - head.rx * 1.18, margin, state.width - margin), y: sideY },
-    { x: clamp(head.cx + head.rx * 1.18, margin, state.width - margin), y: sideY + 18 },
+    { x: state.width * 0.5, y: state.height * 0.20 },
+    { x: state.width * 0.25, y: state.height * 0.28 },
+    { x: state.width * 0.75, y: state.height * 0.25 },
   ];
+  state.metrics.fireworkTargets = targets;
 
   targets.forEach((target, index) => {
     rockets.push(
@@ -692,7 +691,7 @@ function drawScene(now) {
   ctx.lineJoin = "round";
   ctx.globalCompositeOperation = "source-over";
   predictPoseColliders(now);
-  state.collisionMask = state.silhouette && now - state.silhouette.updatedAt < 360 ? state.silhouette : null;
+  state.collisionMask = state.silhouette && now - state.silhouette.updatedAt < 300 ? { ...state.silhouette, ...cameraTransform() } : null;
   state.collisionHead = null;
   if (state.head.valid && now - state.head.updatedAt < Math.max(360, state.inferenceInterval + state.metrics.inferenceMs + 150)) {
     const headAge = clamp((now - state.head.updatedAt) / 1000, 0, 0.08);
@@ -1022,9 +1021,11 @@ async function detectFace(now) {
     if (landmarks) {
       state.metrics.faceCount += 1;
       updateHeadCollider(landmarks, now);
+      state.silhouette = { ...result.mask, ...cameraTransform(), updatedAt: now };
       updateExpression(result.smile, now);
     } else {
       state.head.valid = false;
+      state.silhouette = null;
       state.rainTarget = 0;
       state.isSmiling = false;
       state.expressionMode = "neutral";
@@ -1382,9 +1383,10 @@ Object.defineProperty(window, "__SMILE_LIVE_METRICS__", {
     bodyColliderCount: 0,
     bodyColliderParts: [],
     shoulderSource: "disabled",
-    collisionSource: state.collisionHead ? "face" : "none",
+    collisionSource: state.collisionMask ? "silhouette" : "none",
     headCollider: state.collisionHead ? { ...state.collisionHead } : null,
-    segmentationEnabled: false,
+    segmentationEnabled: true,
+    headMask: state.collisionMask,
     maskAgeMs: state.silhouette ? Math.round(performance.now() - state.silhouette.updatedAt) : null,
     shoulderCollider: state.body.colliders.find((collider) => collider.part.includes("shoulder")) ?? null,
   }),

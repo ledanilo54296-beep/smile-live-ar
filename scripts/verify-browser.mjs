@@ -56,10 +56,10 @@ async function newContext(viewport = { width: 390, height: 844 }) {
   return context;
 }
 
-const snapshot = (page) => page.evaluate(() => ({
-  state: document.querySelector('#app').dataset.state,
-  ...window.__SMILE_LIVE_METRICS__,
-}));
+const snapshot = (page) => page.evaluate(() => {
+  const { headMask, ...metrics } = window.__SMILE_LIVE_METRICS__;
+  return { state: document.querySelector('#app').dataset.state, ...metrics };
+});
 async function ready(page) {
   await page.waitForFunction(() => window.__SMILE_LIVE_METRICS__?.startup.firstInferenceAt != null && document.querySelector('#app').dataset.state === 'live', null, { timeout: 35000 });
 }
@@ -75,14 +75,20 @@ async function pixels(page) {
 
 async function headBoundaryScreenshot(page, name) {
   await page.evaluate(() => {
-    const head = window.__SMILE_LIVE_METRICS__.headCollider;
+    const mask = window.__SMILE_LIVE_METRICS__.headMask;
     const overlay = document.createElement('canvas');
     overlay.id = 'qa-head-boundary';
     overlay.width = innerWidth; overlay.height = innerHeight;
     overlay.style.cssText = 'position:fixed;inset:0;z-index:100;pointer-events:none';
     const ctx = overlay.getContext('2d');
-    ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.ellipse(head.cx, head.cy, head.rx, head.ry, head.rotation || 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#00ff00';
+    for (let y = 1; y < mask.height - 1; y++) for (let x = 1; x < mask.width - 1; x++) {
+      const i = y * mask.width + x, px = x / mask.width, py = y / mask.height;
+      if (px < mask.bounds.left || px > mask.bounds.right || py < mask.bounds.top || py > mask.bounds.bottom) continue;
+      if (mask.data[i] >= 0.5 && [i - 1, i + 1, i - mask.width, i + mask.width].some((j) => mask.data[j] < 0.5)) {
+        ctx.fillRect(mask.ox + px * mask.sx, mask.oy + py * mask.sy, 2, 2);
+      }
+    }
     document.body.append(overlay);
   });
   await page.screenshot({ path: path.join(output, name) });
@@ -109,6 +115,15 @@ try {
   assert.ok(!requests.some((request) => /\.task|vision_wasm/.test(request)), 'No legacy runtime downloads');
   assert.equal(cold.visionBackend, 'wasm');
   assert.match(await page.locator('#toast').textContent(), /Smile for rain. Laugh for fireworks/);
+
+  const closedStartedAt = Date.now();
+  await page.evaluate(() => { window.cameraFixture = 'closedSmile'; });
+  await page.waitForFunction(() => window.__SMILE_LIVE_METRICS__.expressionMode === 'rain', null, { timeout: 800 });
+  results.push({ name: 'closed-smile', responseMs: Date.now() - closedStartedAt, ...await snapshot(page) });
+  assert.equal((await snapshot(page)).fireworkCount, 0, 'Closed smile must produce rain, not fireworks');
+  await page.screenshot({ path: path.join(output, 'closed-smile.png') });
+  await page.evaluate(() => { window.cameraFixture = 'neutral'; });
+  await page.waitForFunction(() => window.__SMILE_LIVE_METRICS__.expressionMode === 'neutral');
 
   const smileStartedAt = Date.now();
   await page.evaluate(() => { window.cameraFixture = 'smile'; });
@@ -143,9 +158,13 @@ try {
     const scale = innerHeight / 640;
     return { x: innerWidth / 2 + (250 - 335) * 384 / 500 * scale, y: (320 - 282 * 384 / 500 / 2 + 3 * 384 / 500) * scale };
   });
-  const crownRadius = ((crown.x - headBefore.cx) * Math.cos(headBefore.rotation) + (crown.y - headBefore.cy) * Math.sin(headBefore.rotation)) ** 2 / headBefore.rx ** 2
-    + (-(crown.x - headBefore.cx) * Math.sin(headBefore.rotation) + (crown.y - headBefore.cy) * Math.cos(headBefore.rotation)) ** 2 / headBefore.ry ** 2;
-  assert.ok(Math.abs(Math.sqrt(crownRadius) - 1) < 0.13, 'Collision surface must reach the visible crown, not stop at the forehead');
+  const detectedTop = await page.evaluate((crown) => {
+    const mask = window.__SMILE_LIVE_METRICS__.headMask;
+    const x = Math.round((crown.x - mask.ox) / mask.sx * mask.width);
+    for (let y = 0; y < mask.height; y++) if (mask.data[y * mask.width + x] >= 0.5) return mask.oy + y / mask.height * mask.sy;
+    return null;
+  }, crown);
+  assert.ok(detectedTop !== null && Math.abs(detectedTop - crown.y) < 20, `Head mask must follow the visible hair: ${detectedTop} vs ${crown.y}`);
   await page.evaluate(() => { window.cameraRotation = 0.25; });
   await page.waitForFunction((rotation) => window.__SMILE_LIVE_METRICS__.headCollider?.rotation < rotation - 0.12, headBefore.rotation, { timeout: 800 });
   await headBoundaryScreenshot(page, 'head-boundary-tilted.png');
@@ -171,6 +190,9 @@ try {
   await page.waitForFunction(() => window.__SMILE_LIVE_METRICS__.smileScore < 0.12);
   await page.evaluate(() => { window.cameraFixture = 'laugh'; });
   await page.waitForFunction(() => window.__SMILE_LIVE_METRICS__.fireworkCount === 2);
+  assert.deepEqual((await snapshot(page)).fireworkTargets, [
+    { x: 195, y: 844 * 0.20 }, { x: 390 * 0.25, y: 844 * 0.28 }, { x: 390 * 0.75, y: 844 * 0.25 },
+  ], 'Firework bursts are anchored to the upper screen');
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForTimeout(1900);
   await page.screenshot({ path: path.join(output, 'desktop-fireworks.png') });
