@@ -42,7 +42,9 @@ async function initialize() {
   });
   await api.tf.setBackend('wasm');
   await api.tf.ready();
-  segmenter = await segmentation.createSegmenter();
+  // Load the hair boundary in the background. Face inference must not wait for
+  // the optional segmentation model; the tracked head remains the first-frame fallback.
+  segmentation.createSegmenter().then((value) => { segmenter = value; }).catch(() => {});
   segmentHead = segmentation.segmentHead;
   models.forEach(({ name, weights }, index) => {
     api.nets[name].loadFromWeightMap(api.tf.io.decodeWeights(buffers[index], weights));
@@ -76,7 +78,7 @@ self.onmessage = async ({ data }) => {
       result = {
         points,
         smile: smileFromLandmarks(face.expressions.happy, points, width / height),
-        mask: await segmentHead(segmenter, canvas, points),
+        mask: segmenter ? await segmentHead(segmenter, canvas, points) : null,
         confidence: face.detection.score,
       };
     }
