@@ -148,6 +148,8 @@ try {
   results.push({ name: 'laugh', responseMs: laughResponseMs, ...await snapshot(page), pixels: await pixels(page) });
   await page.waitForTimeout(4200);
   assert.equal((await snapshot(page)).fireworkCount, 1, 'Held smile must not repeatedly ignite');
+  assert.ok((await snapshot(page)).collisionCount > 0, 'Firework particles must visibly collide with the tracked head');
+  assert.ok((await snapshot(page)).rainImpactCount > 0, 'Rain must visibly collide with the tracked head');
   assert.equal(await page.locator('#smile-callout strong').textContent(), 'Fireworks');
   await headBoundaryScreenshot(page, 'head-boundary.png');
 

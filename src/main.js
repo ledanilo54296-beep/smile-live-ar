@@ -1,7 +1,7 @@
 import { FaceTracker } from "./vision.js";
 import { createIcons, Camera, CameraOff, ShieldCheck, Volume2, VolumeX } from "lucide";
 import { classifyExpression, EXPRESSION_THRESHOLDS, smoothSmile } from "./expression.js";
-import { fitHeadEllipse, reflectVelocity } from "./physics.js";
+import { fitHeadEllipse, reflectVelocity, segmentEllipseIntersection } from "./physics.js";
 import { coverTransform, segmentSilhouetteIntersection } from "./silhouette.js";
 import { SoundEngine } from "./sound.js";
 import "./style.css";
@@ -425,13 +425,19 @@ function recordPersonCollision(part) {
 
 function findPersonCollision(x0, y0, x1, y1) {
   const mask = state.collisionMask;
-  if (!mask) return null;
-  const hit = segmentSilhouetteIntersection(x0, y0, x1, y1, mask);
-  if (!hit) return null;
-  const x = (hit.x - mask.ox) / mask.sx, y = (hit.y - mask.oy) / mask.sy;
-  const bounds = mask.bounds;
-  if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return null;
-  return { ...hit, vx: state.head.vx, vy: state.head.vy, part: "head", source: "silhouette" };
+  if (mask) {
+    const hit = segmentSilhouetteIntersection(x0, y0, x1, y1, mask);
+    if (hit) {
+      const x = (hit.x - mask.ox) / mask.sx, y = (hit.y - mask.oy) / mask.sy;
+      const bounds = mask.bounds;
+      if (x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom) {
+        return { ...hit, vx: state.head.vx, vy: state.head.vy, part: "head", source: "silhouette" };
+      }
+    }
+  }
+  if (!state.collisionHead) return null;
+  const hit = segmentEllipseIntersection(x0, y0, x1, y1, state.collisionHead);
+  return hit ? { ...hit, vx: state.collisionHead.vx, vy: state.collisionHead.vy, part: "head", source: "face-fallback" } : null;
 }
 
 function resolvePersonCollision(particle) {

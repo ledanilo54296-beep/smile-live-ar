@@ -1,7 +1,7 @@
 export const EXPRESSION_THRESHOLDS = {
   rainOn: 0.10,
   rainOff: 0.06,
-  laughOn: 0.60,
+  laughOn: 0.48,
 };
 
 export function smileFromLandmarks(happy, points, aspect = 1) {
@@ -17,7 +17,7 @@ export function smileFromLandmarks(happy, points, aspect = 1) {
   const cornerLift = (((mouthCenter.x - corners.x) * aspect * axis.x + (mouthCenter.y - corners.y) * axis.y) / axisLength) / width;
   const closedSmile = Math.min(0.44, Math.max(0, happy), Math.max(0, cornerLift) * 12 + 0.08);
   // Separate gentle smiles from a natural open smile without requiring an exaggerated jaw opening.
-  return Math.max(closedSmile, Math.min(1, Math.max(0, happy)) * (0.44 + 0.56 * Math.min(1, Math.max(0, (opening - 0.09) / 0.18))));
+  return Math.max(closedSmile, Math.min(1, Math.max(0, happy)) * (0.44 + 0.56 * Math.min(1, Math.max(0, (opening - 0.12) / 0.18))));
 }
 
 export function smoothSmile(previous, score, elapsedMs) {

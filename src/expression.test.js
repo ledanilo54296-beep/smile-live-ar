@@ -22,11 +22,10 @@ test("rain hysteresis prevents threshold flicker", () => {
 
 test("a gentle smile and a moderate grin no longer need exaggerated expressions", () => {
   assert.equal(classifyExpression(0.2, false).mode, "rain");
-  assert.equal(classifyExpression(0.48, true).mode, "rain");
-  assert.equal(classifyExpression(0.51, true).mode, "rain");
-  assert.equal(classifyExpression(0.58, true).mode, "rain");
-  assert.equal(classifyExpression(0.60, true).mode, "laugh");
-  assert.equal(classifyExpression(0.62, true).mode, "laugh");
+  assert.equal(classifyExpression(0.43, true).mode, "rain");
+  assert.equal(classifyExpression(0.47, true).mode, "rain");
+  assert.equal(classifyExpression(0.48, true).mode, "laugh");
+  assert.equal(classifyExpression(0.52, true).mode, "laugh");
 });
 
 test("smile smoothing responds consistently across inference rates", () => {
@@ -50,8 +49,8 @@ const mouth = (opening) => {
 
 test("a faint closed smile now starts rain without changing the fireworks threshold", () => {
   assert.equal(classifyExpression(smileFromLandmarks(0.3, mouth(0.05)), false).mode, "rain");
-  assert.equal(classifyExpression(0.59, true).mode, "rain");
-  assert.equal(classifyExpression(0.60, true).mode, "laugh");
+  assert.equal(classifyExpression(0.47, true).mode, "rain");
+  assert.equal(classifyExpression(0.48, true).mode, "laugh");
 });
 
 test("low-confidence closed smiles use raised mouth corners without requiring jaw opening", () => {
@@ -62,7 +61,7 @@ test("low-confidence closed smiles use raised mouth corners without requiring ja
   points[57] = { x: 0.5, y: 0.52 };
   assert.equal(classifyExpression(smileFromLandmarks(0.16, points), false).mode, "rain");
   assert.equal(classifyExpression(smileFromLandmarks(0.03, points), false).mode, "neutral");
-  assert.ok(smileFromLandmarks(0.95, points) < 0.60, "Closed smile boost cannot trigger fireworks");
+  assert.ok(smileFromLandmarks(0.95, points) < 0.48, "Closed smile boost cannot trigger fireworks");
 });
 
 test("a closed smile produces rain even when smile confidence saturates", () => {
