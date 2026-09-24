@@ -383,8 +383,9 @@ class Particle {
 
 function resizeCanvas() {
   state.silhouette = null;
-  state.width = window.innerWidth;
-  state.height = window.innerHeight;
+  const bounds = ui.app.getBoundingClientRect();
+  state.width = Math.round(bounds.width);
+  state.height = Math.round(bounds.height);
   ui.canvas.width = state.width;
   ui.canvas.height = state.height;
   ui.canvas.style.width = `${state.width}px`;
@@ -757,6 +758,8 @@ function updateHeadCollider(landmarks, now) {
   state.head.cy = lerp(state.head.cy, fitted.cy, amount);
   state.head.rx = lerp(state.head.rx, fitted.rx, amount);
   state.head.ry = lerp(state.head.ry, fitted.ry, amount);
+  const previousAngle = state.head.rotation || 0;
+  state.head.rotation = previousAngle + Math.atan2(Math.sin(fitted.rotation - previousAngle), Math.cos(fitted.rotation - previousAngle)) * amount;
   state.head.vx = state.head.valid ? clamp((state.head.cx - previousX) / elapsed, -220, 220) : 0;
   state.head.vy = state.head.valid ? clamp((state.head.cy - previousY) / elapsed, -220, 220) : 0;
   state.head.alpha = lerp(state.head.alpha, 1, 0.3);
@@ -1353,6 +1356,7 @@ ui.closeButton.addEventListener("click", closeExperience);
 ui.soundButton.addEventListener("click", toggleSound);
 ui.captureButton.addEventListener("click", capturePhoto);
 window.addEventListener("resize", resizeCanvas, { passive: true });
+new ResizeObserver(resizeCanvas).observe(ui.app);
 window.addEventListener("beforeunload", () => {
   stopCamera();
   state.landmarker?.close();

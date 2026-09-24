@@ -1,13 +1,18 @@
 const EPSILON = 0.000001;
 
 export function fitHeadEllipse(left, right, brow, chin) {
-  const topY = brow.y - Math.abs(chin.y - brow.y) * 0.65;
-  // Forehead extrapolation already includes the upper head; allow only a small edge margin.
+  const dx = chin.x - brow.x;
+  const dy = chin.y - brow.y;
+  const lowerFaceHeight = Math.hypot(dx, dy);
+  // These landmarks end at the brow, not the scalp. Extend along the face axis
+  // to the crown, retaining orientation when the head tilts or the camera mirrors.
+  const crownRatio = 0.85;
   return {
-    cx: (left.x + right.x) / 2,
-    cy: (topY + chin.y) / 2,
-    rx: Math.abs(right.x - left.x) * 0.56,
-    ry: Math.abs(chin.y - topY) * 0.52,
+    cx: brow.x + dx * (1 - crownRatio) / 2,
+    cy: brow.y + dy * (1 - crownRatio) / 2,
+    rx: Math.hypot(right.x - left.x, right.y - left.y) * 0.54,
+    ry: lowerFaceHeight * (1 + crownRatio) / 2,
+    rotation: Math.atan2(-dx, dy),
   };
 }
 
@@ -41,6 +46,19 @@ function segmentCircleIntersection(x0, y0, x1, y1, cx, cy, radius) {
 
 export function segmentEllipseIntersection(x0, y0, x1, y1, ellipse) {
   if (!ellipse || ellipse.rx <= 0 || ellipse.ry <= 0) return null;
+  if (ellipse.rotation) {
+    const cos = Math.cos(ellipse.rotation), sin = Math.sin(ellipse.rotation);
+    const local = (x, y) => ({ x: (x - ellipse.cx) * cos + (y - ellipse.cy) * sin, y: -(x - ellipse.cx) * sin + (y - ellipse.cy) * cos });
+    const start = local(x0, y0), end = local(x1, y1);
+    const hit = segmentEllipseIntersection(start.x, start.y, end.x, end.y, { cx: 0, cy: 0, rx: ellipse.rx, ry: ellipse.ry });
+    return hit && {
+      ...hit,
+      x: ellipse.cx + hit.x * cos - hit.y * sin,
+      y: ellipse.cy + hit.x * sin + hit.y * cos,
+      normalX: hit.normalX * cos - hit.normalY * sin,
+      normalY: hit.normalX * sin + hit.normalY * cos,
+    };
+  }
 
   const startX = (x0 - ellipse.cx) / ellipse.rx;
   const startY = (y0 - ellipse.cy) / ellipse.ry;

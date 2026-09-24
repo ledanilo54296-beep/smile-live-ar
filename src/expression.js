@@ -1,6 +1,6 @@
 export const EXPRESSION_THRESHOLDS = {
-  rainOn: 0.18,
-  rainOff: 0.12,
+  rainOn: 0.10,
+  rainOff: 0.06,
   laughOn: 0.60,
 };
 

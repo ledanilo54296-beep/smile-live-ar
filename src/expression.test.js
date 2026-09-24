@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { classifyExpression, smoothSmile, smileFromLandmarks } from "./expression.js";
 
 test("neutral expression has no weather effect", () => {
-  assert.deepEqual(classifyExpression(0.12, false), { mode: "neutral", isSmiling: false });
+  assert.deepEqual(classifyExpression(0.05, false), { mode: "neutral", isSmiling: false });
 });
 
 test("a smile produces rain without fireworks", () => {
@@ -15,9 +15,9 @@ test("a laugh produces fireworks", () => {
 });
 
 test("rain hysteresis prevents threshold flicker", () => {
-  assert.deepEqual(classifyExpression(0.15, true), { mode: "rain", isSmiling: true });
-  assert.deepEqual(classifyExpression(0.15, false), { mode: "neutral", isSmiling: false });
-  assert.deepEqual(classifyExpression(0.11, true), { mode: "neutral", isSmiling: false });
+  assert.deepEqual(classifyExpression(0.08, true), { mode: "rain", isSmiling: true });
+  assert.deepEqual(classifyExpression(0.08, false), { mode: "neutral", isSmiling: false });
+  assert.deepEqual(classifyExpression(0.05, true), { mode: "neutral", isSmiling: false });
 });
 
 test("a gentle smile and a moderate grin no longer need exaggerated expressions", () => {
@@ -36,7 +36,7 @@ test("smile smoothing responds consistently across inference rates", () => {
   for (let i = 0; i < 2; i += 1) slow = smoothSmile(slow, 0.24, 150);
   assert.ok(Math.abs(fast - slow) < 0.000001);
   assert.equal(classifyExpression(slow, false).mode, "rain");
-  assert.equal(classifyExpression(smoothSmile(0, 0.25, 100), false).mode, "neutral");
+  assert.equal(classifyExpression(smoothSmile(0, 0.25, 100), false).mode, "rain");
 });
 
 const mouth = (opening) => {
@@ -47,6 +47,12 @@ const mouth = (opening) => {
   points[66] = { x: 0.5, y: 0.5 + opening * 0.1 };
   return points;
 };
+
+test("a faint closed smile now starts rain without changing the fireworks threshold", () => {
+  assert.equal(classifyExpression(smileFromLandmarks(0.3, mouth(0.05)), false).mode, "rain");
+  assert.equal(classifyExpression(0.59, true).mode, "rain");
+  assert.equal(classifyExpression(0.60, true).mode, "laugh");
+});
 
 test("a closed smile produces rain even when smile confidence saturates", () => {
   assert.equal(classifyExpression(smileFromLandmarks(1, mouth(0.05)), false).mode, "rain");

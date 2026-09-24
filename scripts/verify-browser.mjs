@@ -35,7 +35,11 @@ async function newContext(viewport = { width: 390, height: 844 }) {
         const image = images[window.cameraFixture];
         if (!image) return;
         const scale = Math.min(384 / image.width, 512 / image.height);
-        painter.drawImage(image, (480 - image.width * scale) / 2 + (window.cameraOffsetX || 0), (640 - image.height * scale) / 2, image.width * scale, image.height * scale);
+        painter.save();
+        painter.translate(240 + (window.cameraOffsetX || 0), 320);
+        painter.rotate(window.cameraRotation || 0);
+        painter.drawImage(image, -image.width * scale / 2, -image.height * scale / 2, image.width * scale, image.height * scale);
+        painter.restore();
       };
       draw();
       const timer = setInterval(draw, 80);
@@ -67,6 +71,22 @@ async function pixels(page) {
     for (let i = 3; i < data.length; i += 4) if (data[i]) count++;
     return count;
   });
+}
+
+async function headBoundaryScreenshot(page, name) {
+  await page.evaluate(() => {
+    const head = window.__SMILE_LIVE_METRICS__.headCollider;
+    const overlay = document.createElement('canvas');
+    overlay.id = 'qa-head-boundary';
+    overlay.width = innerWidth; overlay.height = innerHeight;
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:100;pointer-events:none';
+    const ctx = overlay.getContext('2d');
+    ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(head.cx, head.cy, head.rx, head.ry, head.rotation || 0, 0, Math.PI * 2); ctx.stroke();
+    document.body.append(overlay);
+  });
+  await page.screenshot({ path: path.join(output, name) });
+  await page.locator('#qa-head-boundary').evaluate((element) => element.remove());
 }
 
 try {
@@ -114,8 +134,31 @@ try {
   await page.waitForTimeout(4200);
   assert.equal((await snapshot(page)).fireworkCount, 1, 'Held smile must not repeatedly ignite');
   assert.equal(await page.locator('#smile-callout strong').textContent(), 'Fireworks');
+  await headBoundaryScreenshot(page, 'head-boundary.png');
 
   const headBefore = (await snapshot(page)).headCollider;
+  // The fixture crown is at source pixel (335, 3). Check its projected position,
+  // independently of the landmark-to-ellipse formula.
+  const crown = await page.evaluate(() => {
+    const scale = innerHeight / 640;
+    return { x: innerWidth / 2 + (250 - 335) * 384 / 500 * scale, y: (320 - 282 * 384 / 500 / 2 + 3 * 384 / 500) * scale };
+  });
+  const crownRadius = ((crown.x - headBefore.cx) * Math.cos(headBefore.rotation) + (crown.y - headBefore.cy) * Math.sin(headBefore.rotation)) ** 2 / headBefore.rx ** 2
+    + (-(crown.x - headBefore.cx) * Math.sin(headBefore.rotation) + (crown.y - headBefore.cy) * Math.cos(headBefore.rotation)) ** 2 / headBefore.ry ** 2;
+  assert.ok(Math.abs(Math.sqrt(crownRadius) - 1) < 0.13, 'Collision surface must reach the visible crown, not stop at the forehead');
+  await page.evaluate(() => { window.cameraRotation = 0.25; });
+  await page.waitForFunction((rotation) => window.__SMILE_LIVE_METRICS__.headCollider?.rotation < rotation - 0.12, headBefore.rotation, { timeout: 800 });
+  await headBoundaryScreenshot(page, 'head-boundary-tilted.png');
+  await page.evaluate(() => { window.cameraRotation = 0; });
+  await page.waitForFunction((rotation) => Math.abs(window.__SMILE_LIVE_METRICS__.headCollider?.rotation - rotation) < 0.06, headBefore.rotation, { timeout: 800 });
+
+  await page.locator('#app').evaluate((app) => { app.style.height = '644px'; });
+  await page.waitForFunction((head) => {
+    const canvas = document.querySelector('#fx-canvas'), current = window.__SMILE_LIVE_METRICS__.headCollider;
+    return canvas.height === 644 && current && Math.abs(current.cy - head.cy * 644 / 844) < 5;
+  }, headBefore, { timeout: 800 });
+  await page.locator('#app').evaluate((app) => app.style.removeProperty('height'));
+  await page.waitForFunction((head) => Math.abs(window.__SMILE_LIVE_METRICS__.headCollider?.cy - head.cy) < 5, headBefore, { timeout: 800 });
   await page.evaluate(() => { window.cameraOffsetX = 48; });
   await page.waitForFunction((cx) => window.__SMILE_LIVE_METRICS__.headCollider?.cx < cx - 25, headBefore.cx, { timeout: 800 });
   const movedHead = (await snapshot(page)).headCollider;

@@ -2,14 +2,28 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { fitHeadEllipse, reflectVelocity, segmentCapsuleIntersection, segmentEllipseIntersection } from "./physics.js";
 
-test("68-point forehead extrapolation does not create an oversized invisible collision zone", () => {
+test("head boundary reaches the crown, not the forehead, without an outer padding zone", () => {
   const left = { x: 50, y: 120 }, right = { x: 150, y: 120 };
   const brow = { x: 100, y: 100 }, chin = { x: 100, y: 200 };
   const fitted = fitHeadEllipse(left, right, brow, chin);
   assert.deepEqual(fitted, fitHeadEllipse(right, left, brow, chin));
-  assert.equal(segmentEllipseIntersection(100, -50, 100, 25, fitted), null, 'Rain above the forehead must not bounce in empty space');
-  const hit = segmentEllipseIntersection(100, 25, 100, 80, fitted);
-  assert.ok(hit && hit.y >= 30 && hit.y <= 35, 'Rain reaches the forehead before bouncing');
+  assert.equal(segmentEllipseIntersection(100, -50, 100, 10, fitted), null, 'Rain above the crown must not bounce in empty space');
+  const hit = segmentEllipseIntersection(100, 10, 100, 80, fitted);
+  assert.ok(hit && Math.abs(hit.y - 15) < 0.001, 'Rain reaches the crown before bouncing');
+});
+
+test("tilting the head rotates both the collision boundary and its reflection normal", () => {
+  const angle = 0.5;
+  const rotate = ({ x, y }) => ({ x: x * Math.cos(angle) - y * Math.sin(angle), y: x * Math.sin(angle) + y * Math.cos(angle) });
+  const points = [{ x: 50, y: 120 }, { x: 150, y: 120 }, { x: 100, y: 100 }, { x: 100, y: 200 }];
+  const upright = fitHeadEllipse(...points), tilted = fitHeadEllipse(...points.map(rotate));
+  assert.ok(Math.abs(tilted.rx - upright.rx) < 1e-6);
+  assert.ok(Math.abs(tilted.ry - upright.ry) < 1e-6);
+  const start = rotate({ x: 100, y: 0 }), end = rotate({ x: 100, y: 50 });
+  const hit = segmentEllipseIntersection(start.x, start.y, end.x, end.y, tilted);
+  const expected = rotate({ x: 100, y: 15 });
+  assert.ok(hit && Math.hypot(hit.x - expected.x, hit.y - expected.y) < 1e-6);
+  assert.ok(Math.abs(hit.normalX - Math.sin(angle)) < 1e-6);
 });
 
 const head = { cx: 100, cy: 100, rx: 50, ry: 30 };
