@@ -1,7 +1,7 @@
 import { FaceTracker } from "./vision.js";
 import { createIcons, Camera, CameraOff, ShieldCheck, Volume2, VolumeX } from "lucide";
 import { classifyExpression, EXPRESSION_THRESHOLDS, smoothSmile } from "./expression.js";
-import { reflectVelocity, segmentEllipseIntersection } from "./physics.js";
+import { fitHeadEllipse, reflectVelocity, segmentEllipseIntersection } from "./physics.js";
 import { coverTransform } from "./silhouette.js";
 import { SoundEngine } from "./sound.js";
 import "./style.css";
@@ -35,7 +35,7 @@ const PERFORMANCE = {
   inferenceWidth: 384,
   minVisionGap: 52,
   minInferenceInterval: 84,
-  maxInferenceInterval: 700,
+  maxInferenceInterval: 150,
   maxRain: 56,
   maxFireworks: 180,
   maxSparks: 48,
@@ -539,6 +539,7 @@ function setCallout(label, value, ignited = false, duration = 0) {
 
 function updateCalloutForMode() {
   if (state.expressionMode === "rain") setCallout("SMILE DETECTED", "Rain");
+  else if (state.expressionMode === "laugh") setCallout("BIG SMILE DETECTED", "Fireworks");
   else setCallout("EXPRESSION WEATHER", "Ready");
 }
 
@@ -746,20 +747,16 @@ function updateHeadCollider(landmarks, now) {
   const right = projectLandmark(landmarks[16]);
   const brow = projectLandmark(landmarks[27]);
   const bottom = projectLandmark(landmarks[8]);
-  const top = { x: brow.x, y: brow.y - Math.abs(bottom.y - brow.y) * 0.65 };
-  const faceWidth = Math.abs(right.x - left.x);
-  const faceHeight = Math.abs(bottom.y - top.y);
-  const targetX = (left.x + right.x) / 2;
-  const targetY = (top.y + bottom.y) / 2 - faceHeight * 0.13;
+  const fitted = fitHeadEllipse(left, right, brow, bottom);
   const elapsed = Math.max(0.04, (now - state.head.updatedAt) / 1000);
   const previousX = state.head.cx;
   const previousY = state.head.cy;
   const amount = state.head.valid ? 0.76 : 1;
 
-  state.head.cx = lerp(state.head.cx, targetX, amount);
-  state.head.cy = lerp(state.head.cy, targetY, amount);
-  state.head.rx = lerp(state.head.rx, faceWidth * 0.64, amount);
-  state.head.ry = lerp(state.head.ry, faceHeight * 0.74, amount);
+  state.head.cx = lerp(state.head.cx, fitted.cx, amount);
+  state.head.cy = lerp(state.head.cy, fitted.cy, amount);
+  state.head.rx = lerp(state.head.rx, fitted.rx, amount);
+  state.head.ry = lerp(state.head.ry, fitted.ry, amount);
   state.head.vx = state.head.valid ? clamp((state.head.cx - previousX) / elapsed, -220, 220) : 0;
   state.head.vy = state.head.valid ? clamp((state.head.cy - previousY) / elapsed, -220, 220) : 0;
   state.head.alpha = lerp(state.head.alpha, 1, 0.3);
@@ -1005,7 +1002,7 @@ async function detectFace(now) {
   try {
     inferenceContext.drawImage(ui.video, 0, 0, inferenceCanvas.width, inferenceCanvas.height);
     const image = inferenceContext.getImageData(0, 0, inferenceCanvas.width, inferenceCanvas.height);
-    const { result, inferenceMs: elapsed } = await state.landmarker.detect(image);
+    const { result, inferenceMs: elapsed, backend } = await state.landmarker.detect(image);
     if (attempt !== state.startAttempt || !state.pageVisible) return;
     now = performance.now();
     if (state.startup.firstInferenceMs === null) {
@@ -1013,6 +1010,7 @@ async function detectFace(now) {
       state.startup.firstInferenceAt = Math.round(performance.now());
     }
     state.metrics.inferenceMs = Math.round(elapsed * 10) / 10;
+    state.metrics.visionBackend = backend;
     state.metrics.inferenceCount += 1;
     const budgetedInterval = clamp(elapsed * 1.3, PERFORMANCE.minInferenceInterval, PERFORMANCE.maxInferenceInterval);
     state.inferenceInterval = lerp(state.inferenceInterval, budgetedInterval, 0.2);
@@ -1031,6 +1029,7 @@ async function detectFace(now) {
       state.smoothedSmile = lerp(state.smoothedSmile, 0, 0.3);
       ui.smileFill.style.width = `${Math.round(state.smoothedSmile * 100)}%`;
       ui.signalLabel.textContent = "Looking for a face";
+      setCallout("EXPRESSION WEATHER", "Looking for a face");
     }
   } catch (error) {
     if (attempt === state.startAttempt) {
@@ -1264,7 +1263,7 @@ async function startExperience() {
     ui.startButton.disabled = false;
     ui.startButton.setAttribute("aria-busy", "false");
     ui.startButton.querySelector("span").textContent = "Start camera";
-    showToast("Effects ready");
+    showToast("Smile for rain. Laugh for fireworks.", 3200);
   } catch (error) {
     if (attempt !== state.startAttempt) return;
     console.error(error);
@@ -1380,6 +1379,7 @@ Object.defineProperty(window, "__SMILE_LIVE_METRICS__", {
     bodyColliderParts: [],
     shoulderSource: "disabled",
     collisionSource: state.collisionHead ? "face" : "none",
+    headCollider: state.collisionHead ? { ...state.collisionHead } : null,
     segmentationEnabled: false,
     maskAgeMs: state.silhouette ? Math.round(performance.now() - state.silhouette.updatedAt) : null,
     shoulderCollider: state.body.colliders.find((collider) => collider.part.includes("shoulder")) ?? null,

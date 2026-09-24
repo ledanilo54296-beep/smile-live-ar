@@ -1,5 +1,8 @@
 import { models } from './vision-models.js';
 import { smileFromLandmarks } from './expression.js';
+import wasmUrl from '@tensorflow/tfjs-backend-wasm/dist/tfjs-backend-wasm.wasm?url';
+import simdUrl from '@tensorflow/tfjs-backend-wasm/dist/tfjs-backend-wasm-simd.wasm?url';
+import threadedUrl from '@tensorflow/tfjs-backend-wasm/dist/tfjs-backend-wasm-threaded-simd.wasm?url';
 
 let api;
 let canvas;
@@ -8,7 +11,7 @@ let ready;
 
 async function initialize() {
   const [library, buffers] = await Promise.all([
-    import('@vladmandic/face-api/dist/face-api.esm.js'),
+    import('@vladmandic/face-api/dist/face-api.esm-nobundle.js'),
     Promise.all(models.map(async ({ url }) => {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Vision asset failed: ${response.status}`);
@@ -27,8 +30,14 @@ async function initialize() {
     createCanvasElement: () => new OffscreenCanvas(1, 1),
     fetch: fetch.bind(self),
   });
-  // CPU avoids expensive first-frame shader compilation and runs off the UI thread.
-  await api.tf.setBackend('cpu');
+  // Single-threaded WASM works on Pages without cross-origin isolation or GPU compilation.
+  api.tf.setThreadsCount(1);
+  api.tf.setWasmPaths({
+    'tfjs-backend-wasm.wasm': wasmUrl,
+    'tfjs-backend-wasm-simd.wasm': simdUrl,
+    'tfjs-backend-wasm-threaded-simd.wasm': threadedUrl,
+  });
+  await api.tf.setBackend('wasm');
   await api.tf.ready();
   models.forEach(({ name, weights }, index) => {
     api.nets[name].loadFromWeightMap(api.tf.io.decodeWeights(buffers[index], weights));
@@ -65,7 +74,7 @@ self.onmessage = async ({ data }) => {
         confidence: face.detection.score,
       };
     }
-    self.postMessage({ id, result, inferenceMs: performance.now() - startedAt });
+    self.postMessage({ id, result, inferenceMs: performance.now() - startedAt, backend: api.tf.getBackend() });
   } catch (error) {
     self.postMessage({ id, error: error.message });
   }

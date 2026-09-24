@@ -41,7 +41,7 @@ VITE_BASE_PATH=/smile-live-ar/ npm run build
 VITE_BASE_PATH=/smile-live-ar/ npm run serve
 ```
 
-然后访问 `http://127.0.0.1:4179/smile-live-ar/`。静态资源随站点发布，无需模型 API 密钥或推理后端。运行时使用 FaceAPI 的 Tiny Face Detector、68 点轻量关键点和表情模型，三个模型原始大小合计约 600KB；模型与推理库在 Worker 内并行下载，CPU 推理不会阻塞界面。全部脚本、样式和模型 gzip 合计约 860KB（实际传输以服务器响应为准）。构建仅发布被代码引用的资源，不发布历史 MediaPipe、WASM 或 Pose 文件。
+然后访问 `http://127.0.0.1:4179/smile-live-ar/`。静态资源随站点发布，无需模型 API 密钥或推理后端。运行时使用 FaceAPI 的 Tiny Face Detector、68 点轻量关键点和表情模型，三个模型原始大小合计约 600KB；模型与推理库在 Worker 内并行下载。推理使用 TensorFlow 的单线程 WASM 后端，支持 SIMD 时自动启用，不阻塞界面，不依赖 GPU 编译或跨源隔离。构建仅发布被代码引用的资源，不发布历史 MediaPipe 运行库或 Pose 文件。
 
 ## 交互验收
 
@@ -52,7 +52,7 @@ VITE_BASE_PATH=/smile-live-ar/ npm run serve
 - 烟花爆点位于头顶及两侧；粒子通过连续检测与头部椭圆反射，避免高速穿透。
 - 头部椭圆跟随实时人脸关键点；肩膀、手臂和其他身体部位不参与碰撞。
 - 雨滴命中头部时显示短促水花和反弹水珠，烟花命中头部时显示短促星芒。
-- 识别就绪后显示 `Effects ready`，右上角呈现识别状态；雨声是低音量连续雨床加稀疏水滴，烟花声音按升空燃烧、爆炸冲击和爆炸后噼啪散落三段播放，均可关闭。
+- 识别就绪后显示 `Smile for rain. Laugh for fireworks.`；持续大笑时保留 `Fireworks` 状态。雨声是低音量连续雨床加稀疏水滴，烟花声音按升空燃烧、爆炸冲击和爆炸后噼啪散落三段播放，均可关闭。
 - 烟花由三档速度和五种颜色组成，并带双层拖尾、扩散光环和爆心星芒。
 - 底部拍照按钮居中，左侧静音，右侧停止摄像头；体验固定使用前置摄像头镜像，避免移动端重新初始化摄像头造成长时间卡顿。
 - 模型和推理库跟随站点发布，摄像头画面只在本设备处理，不会上传。
@@ -63,8 +63,8 @@ VITE_BASE_PATH=/smile-live-ar/ npm run serve
 - 表情推理在独立 Worker 中串行、自适应限频，没有帧队列堆积；视觉渲染最高 30fps、Canvas DPR 固定为 1。
 - 雨滴最多 56、烟花粒子最多 180、碰撞火花最多 48；页面切到后台时暂停摄像头轨道和计算。
 - `npm test` 验证高速粒子对头部的连续碰撞；运行时可在控制台读取 `window.__SMILE_LIVE_METRICS__`。
-- `window.__SMILE_LIVE_METRICS__.startup` 记录模型开始/就绪、摄像头准备、点击到画面显示（`clickToPreviewMs`）、点击到首次推理完成（`clickToReadyMs`）和首次推理耗时。页面只在首次推理成功后显示 `Effects ready`。
-- 所有浏览器使用相同的 Worker CPU 路径，不依赖 GPU delegate 或首次 shader 编译。Worker 无响应时会被终止，重试创建全新实例。防挂死超时不是性能验收标准。
+- `window.__SMILE_LIVE_METRICS__.startup` 记录模型开始/就绪、摄像头准备、点击到画面显示（`clickToPreviewMs`）、点击到首次推理完成（`clickToReadyMs`）和首次推理耗时。页面只在首次推理成功后进入可用状态。
+- 所有浏览器使用相同的 Worker WASM 路径，识别调度间隔为 84–150ms；单次计算期间不堆积帧。Worker 无响应时会被终止，重试创建全新实例。防挂死超时不是性能验收标准。
 - 浏览器需要支持 HTTPS 摄像头、Module Worker 和 OffscreenCanvas。浏览器或内置 WebView 的摄像头权限限制、断网与极慢连接仍会影响启动；不能把移动视口模拟测试当作实体手机实测。
 
 ## 浏览器功能验收

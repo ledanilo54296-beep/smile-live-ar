@@ -10,8 +10,8 @@ export function smileFromLandmarks(happy, points, aspect = 1) {
   const width = distance(48, 54);
   if (width < 0.001) return 0;
   const opening = distance(62, 66) / width;
-  // Happiness alone saturates on small smiles; require an open smile for fireworks.
-  return Math.min(1, Math.max(0, happy)) * (0.42 + 0.58 * Math.min(1, Math.max(0, (opening - 0.08) / 0.36)));
+  // Separate gentle smiles from a natural open smile without requiring an exaggerated jaw opening.
+  return Math.min(1, Math.max(0, happy)) * (0.44 + 0.56 * Math.min(1, Math.max(0, (opening - 0.09) / 0.18)));
 }
 
 export function smoothSmile(previous, score, elapsedMs) {

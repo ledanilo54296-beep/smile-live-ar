@@ -1,6 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reflectVelocity, segmentCapsuleIntersection, segmentEllipseIntersection } from "./physics.js";
+import { fitHeadEllipse, reflectVelocity, segmentCapsuleIntersection, segmentEllipseIntersection } from "./physics.js";
+
+test("68-point forehead extrapolation does not create an oversized invisible collision zone", () => {
+  const left = { x: 50, y: 120 }, right = { x: 150, y: 120 };
+  const brow = { x: 100, y: 100 }, chin = { x: 100, y: 200 };
+  const fitted = fitHeadEllipse(left, right, brow, chin);
+  assert.deepEqual(fitted, fitHeadEllipse(right, left, brow, chin));
+  assert.equal(segmentEllipseIntersection(100, -50, 100, 25, fitted), null, 'Rain above the forehead must not bounce in empty space');
+  const hit = segmentEllipseIntersection(100, 25, 100, 80, fitted);
+  assert.ok(hit && hit.y >= 30 && hit.y <= 35, 'Rain reaches the forehead before bouncing');
+});
 
 const head = { cx: 100, cy: 100, rx: 50, ry: 30 };
 

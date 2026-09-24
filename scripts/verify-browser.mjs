@@ -35,7 +35,7 @@ async function newContext(viewport = { width: 390, height: 844 }) {
         const image = images[window.cameraFixture];
         if (!image) return;
         const scale = Math.min(384 / image.width, 512 / image.height);
-        painter.drawImage(image, (480 - image.width * scale) / 2, (640 - image.height * scale) / 2, image.width * scale, image.height * scale);
+        painter.drawImage(image, (480 - image.width * scale) / 2 + (window.cameraOffsetX || 0), (640 - image.height * scale) / 2, image.width * scale, image.height * scale);
       };
       draw();
       const timer = setInterval(draw, 80);
@@ -86,25 +86,43 @@ try {
   await page.waitForFunction(() => window.__SMILE_LIVE_METRICS__.faceCount > 0);
   assert.equal((await snapshot(page)).expressionMode, 'neutral');
   assert.equal(await pixels(page), 0);
-  assert.ok(!requests.some((request) => /\.wasm|\.task/.test(request)), 'No legacy runtime downloads');
+  assert.ok(!requests.some((request) => /\.task|vision_wasm/.test(request)), 'No legacy runtime downloads');
+  assert.equal(cold.visionBackend, 'wasm');
+  assert.match(await page.locator('#toast').textContent(), /Smile for rain. Laugh for fireworks/);
 
+  const smileStartedAt = Date.now();
   await page.evaluate(() => { window.cameraFixture = 'smile'; });
   await page.waitForFunction(() => window.__SMILE_LIVE_METRICS__.expressionMode === 'rain' && window.__SMILE_LIVE_METRICS__.rainAmount > 0.4);
+  const smileResponseMs = Date.now() - smileStartedAt;
+  assert.ok(smileResponseMs < 800, `Smile response: ${smileResponseMs}ms`);
   await page.waitForTimeout(1000);
   assert.ok(await pixels(page) > 100, 'Smile must draw visible rain');
   assert.equal((await snapshot(page)).fireworkCount, 0, 'Small smile must not fire rockets');
   await page.screenshot({ path: path.join(output, 'mobile-rain.png') });
-  results.push({ name: 'smile', ...await snapshot(page), pixels: await pixels(page) });
+  results.push({ name: 'smile', responseMs: smileResponseMs, ...await snapshot(page), pixels: await pixels(page) });
 
+  const laughStartedAt = Date.now();
   await page.evaluate(() => { window.cameraFixture = 'laugh'; });
   await page.waitForFunction(() => window.__SMILE_LIVE_METRICS__.fireworkCount === 1);
+  const laughResponseMs = Date.now() - laughStartedAt;
+  assert.ok(laughResponseMs < 800, `Laugh response: ${laughResponseMs}ms`);
   await page.waitForTimeout(1900);
   assert.equal((await snapshot(page)).expressionMode, 'laugh');
   assert.ok(await pixels(page) > 100, 'Large smile must draw visible fireworks');
   await page.screenshot({ path: path.join(output, 'mobile-fireworks.png') });
-  results.push({ name: 'laugh', ...await snapshot(page), pixels: await pixels(page) });
+  results.push({ name: 'laugh', responseMs: laughResponseMs, ...await snapshot(page), pixels: await pixels(page) });
   await page.waitForTimeout(4200);
   assert.equal((await snapshot(page)).fireworkCount, 1, 'Held smile must not repeatedly ignite');
+  assert.equal(await page.locator('#smile-callout strong').textContent(), 'Fireworks');
+
+  const headBefore = (await snapshot(page)).headCollider;
+  await page.evaluate(() => { window.cameraOffsetX = 48; });
+  await page.waitForFunction((cx) => window.__SMILE_LIVE_METRICS__.headCollider?.cx < cx - 25, headBefore.cx, { timeout: 800 });
+  const movedHead = (await snapshot(page)).headCollider;
+  assert.ok(Math.abs(movedHead.rx / headBefore.rx - 1) < 0.2, 'Moving head must not resize its collision boundary');
+  await page.evaluate(() => { window.cameraFixture = ''; });
+  await page.waitForFunction(() => window.__SMILE_LIVE_METRICS__.collisionSource === 'none', null, { timeout: 800 });
+  await page.evaluate(() => { window.cameraOffsetX = 0; });
 
   await page.evaluate(() => { window.cameraFixture = 'neutral'; });
   await page.waitForFunction(() => window.__SMILE_LIVE_METRICS__.smileScore < 0.12);

@@ -57,6 +57,11 @@ test("open smiling mouth triggers fireworks but a non-smiling open mouth does no
   assert.equal(classifyExpression(smileFromLandmarks(0.05, mouth(0.6)), false).mode, "neutral");
 });
 
+test("a natural laugh with moderate confidence does not need an exaggerated open mouth", () => {
+  assert.equal(classifyExpression(smileFromLandmarks(0.85, mouth(0.19)), true).mode, "laugh");
+  assert.equal(classifyExpression(smileFromLandmarks(1, mouth(0.11)), true).mode, "rain");
+});
+
 test("mouth score is unchanged by image aspect ratio or head rotation", () => {
   const points = mouth(0.3);
   const score = smileFromLandmarks(0.9, points);

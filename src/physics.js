@@ -1,5 +1,16 @@
 const EPSILON = 0.000001;
 
+export function fitHeadEllipse(left, right, brow, chin) {
+  const topY = brow.y - Math.abs(chin.y - brow.y) * 0.65;
+  // Forehead extrapolation already includes the upper head; allow only a small edge margin.
+  return {
+    cx: (left.x + right.x) / 2,
+    cy: (topY + chin.y) / 2,
+    rx: Math.abs(right.x - left.x) * 0.56,
+    ry: Math.abs(chin.y - topY) * 0.52,
+  };
+}
+
 function segmentCircleIntersection(x0, y0, x1, y1, cx, cy, radius) {
   const startX = x0 - cx;
   const startY = y0 - cy;

@@ -1,10 +1,14 @@
 import { defineConfig } from "vite";
+import { fileURLToPath } from 'node:url';
 
 const base = process.env.VITE_BASE_PATH || "/";
 
 export default defineConfig({
   base,
   publicDir: false,
+  resolve: {
+    alias: { '@tensorflow/tfjs/dist/index.js': fileURLToPath(new URL('./src/vision-tf.js', import.meta.url)) },
+  },
   worker: { format: 'es' },
   plugins: [{
     name: 'vision-license',
@@ -13,10 +17,10 @@ export default defineConfig({
       handler(_html, { bundle }) {
         if (!bundle) return [];
         return Object.values(bundle)
-          .filter(({ fileName }) => fileName.endsWith('.bin') || /face-api\.esm-.*\.js$/.test(fileName))
+          .filter(({ fileName }) => fileName.endsWith('.bin') || /face-api\.esm.*\.js$|tfjs-backend-wasm-simd-.*\.wasm$/.test(fileName))
           .map(({ fileName }) => ({
             tag: 'link',
-            attrs: { rel: 'preload', as: fileName.endsWith('.bin') ? 'fetch' : 'script', crossorigin: 'anonymous', href: base + fileName },
+            attrs: { rel: fileName.endsWith('.js') ? 'modulepreload' : 'preload', ...(fileName.endsWith('.js') ? {} : { as: 'fetch' }), crossorigin: 'anonymous', href: base + fileName },
             injectTo: 'head',
           }));
       },
